@@ -502,9 +502,6 @@ convert_purpose <- checkmissing %>%
     homeschooled_flag = ifelse(school_type %in% c(5, 7, 9), 1, 0)
   )
 
-num_sch_problem <- convert_purpose %>%
-  group_by(year, o_purpose) %>%
-  summarise(record_count = n())
 ```
 
 ### Places
@@ -667,7 +664,7 @@ determine_tours <- det_work_place %>%
     trips_in_tour = n(),
     tour_distance = sum(distance_miles),
     tour_duration = last(arrival_time) - first(departure_time), ##2016 and 2018 have records with negative departure time
-    tour_anchor = ifelse(d_activity == "W", "W", ""),
+    tour_anchor = ifelse(d_purpose == "W", "W", ""),
     tour_anchor = ifelse(o_place == "H" & d_place == "H", "H", tour_anchor),
     tour_type = case_when(
       "W" %in% tour_anchor ~ "WT",
@@ -688,10 +685,8 @@ flag_loop_trips <- determine_tours %>%
       trips_in_tour > 2 ~ 0,
       d_act_dur > 10 ~ 0,
       !(mode_type %in% c("walk", "bike")) ~ 0,
-      "walk" %in% origin_name ~ 1,
-      "walk" %in% destination_name ~ 1,
-      !(o_activity %in% c("H", "O")) ~ 0,
-      !(d_activity %in% c("H", "O")) ~ 0,
+      !(o_purpose %in% c("H", "O")) ~ 0,
+      !(d_purpose %in% c("H", "O")) ~ 0,
       TRUE ~ 1
     )
   )
@@ -705,13 +700,14 @@ flag_loop_trips <- determine_tours %>%
 num_sch_problems <- flag_loop_trips %>%
   mutate(
     sch_flag = case_when(
-      o_activity == "SCH?" ~ 1,
-      d_activity == "SCH?" ~ 1,
+      o_purpose == "SCH?" ~ 1,
+      d_purpose == "SCH?" ~ 1,
       TRUE ~ 0
     )
   ) %>%
-  filter(sch_flag == 1 & year>= 2021) %>%
-  nrow()
+  filter(sch_flag == 1) %>%
+  group_by(year) %>%
+  summarise(record_count = n())
   
 #temp <- flag_loop_trips %>%
 #  ungroup() %>%
