@@ -1,0 +1,1496 @@
+---
+title: "survey_tabulation"
+author: "Si Shi"
+date: "9/14/2021"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+options(dplyr.summarise.inform = FALSE)
+options(scipen = 999)
+
+library(tidyverse)
+library(broom)
+library(readxl)
+library(ggplot2)
+library(plotly)
+library(leaflet)
+library(sf)
+library(geosphere)
+library(knitr)
+library(scales)
+library(kableExtra)
+library(sp)
+library(stats)
+library(openxlsx)
+
+```
+
+
+
+```{r read_data, message=FALSE}
+# -------------- 0.1.Import Files ---------------
+setwd("C:/Work/Travel Trends/HTS/2024 HTS/")
+# Read Data
+HH <- read.csv("C:/Work/Travel Trends/HTS/2024 HTS/processed/hh_processed.csv", header = T, na.strings=c("NA","N/A", ""), colClasses=c("year"="character"))
+Person <- read.csv("C:/Work/Travel Trends/HTS/2024 HTS/processed/per_processed.csv", header = T, na.strings=c("NA","N/A", ""), colClasses=c("year"="character"))
+Trips <- read.csv("C:/Work/Travel Trends/HTS/2024 HTS/processed/trips_processed.csv", header = T, na.strings=c("NA","N/A", ""), colClasses=c("year"="character"))
+Day <- read.csv("C:/Work/Travel Trends/HTS/2024 HTS/processed/day_processed.csv", header = T, na.strings=c("NA","N/A", ""), colClasses=c("year"="character"))
+
+
+  
+# -------------- 0.2 Filter out Wake, Durham, Orange (Optional) --------------
+# Durham = 37063 Orange = 37135 Wake = 37183 Chatham = 37037 Johnston=37101 Granville=37077 Franklin=37069 Harnett = 37085
+# DCHC: home_county == 37063 | home_county == 37135 |home_county == 37037
+# CAMPO: home_county == 37183 | home_county == 37101 | home_county == 37077 | home_county == 37069 | home_county == 37085
+if(1==0){
+HH <- HH %>%
+  filter(home_county == 37183 | home_county == 37101 | home_county == 37077 | home_county == 37069 | home_county == 37085) %>%
+  filter(num_vehicles == 0)
+hhid_sel = unique(HH$hh_id)
+
+Person <- Person %>%
+  filter(hh_id %in% hhid_sel)
+
+Trips <- Trips %>%
+  filter(hh_id %in% hhid_sel)
+}
+
+# -------------- 0.3 Save all outputs to one place --------------
+# storage list for all tables
+all_tables <- list()
+
+# wrapper function
+my_kable <- function(x, ...) {
+  all_tables[[paste0("Table", length(all_tables) + 1)]] <<- x
+  kable(x, ...)
+}
+```
+
+
+
+## 1. Demographic Overview 
+### 1.1 Summary Statistics on Demographic Characteristics: Households
+```{r 1.1}
+tab11 <- HH %>% 
+  group_by(year, HHSize) %>%
+  summarise(
+    'Sample Size' = n(),
+    hhnum = sum(hh_weight)
+  ) %>%
+  mutate(
+    pct = hhnum/sum(hhnum),
+    'Percentage' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-pct, -hhnum) %>%
+#  pivot_wider(names_from = "HHSize", values_from = pct) %>%
+  t()
+
+#  mutate(
+#    '# of Household' = round(`# of Household`, digits = 0)
+#         ) %>%
+#  pivot_wider(names_from = "HHSize", values_from = '# of Household') %>%
+#  mutate('Total Household' = `1`+`2`+`3`+`4+`)
+  
+
+my_kable(tab11, caption = "Summary Statistics on Demographic Characteristics: Households by household size") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) 
+
+#%>%
+#  column_spec(1, bold = T)  
+
+```
+
+### 1.2 Summary Statistics on Demographic Characteristics: Persons
+```{r 1.2}
+tab12a <- Person %>% 
+  group_by(year, agecat) %>%
+  summarise(
+    Population = sum(person_weight)
+  ) %>%
+  mutate(
+    pct = Population/sum(Population),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-Population) %>%
+  pivot_wider(names_from = "agecat", values_from = pct)%>%
+  select(c("year", "Under 18", "18-34", "35-64", "65+"))%>%
+  t()
+
+my_kable(tab12a, caption = "Summary Statistics on Demographic Characteristics: Persons by age groups") %>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab12b <- Person %>% 
+  group_by(year, gender) %>%
+  summarise(
+    Population = sum(person_weight)
+  ) %>%
+  mutate(
+    pct = Population/sum(Population),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-Population) %>%
+  pivot_wider(names_from = "gender", values_from = pct)%>%
+  t()
+
+my_kable(tab12b, caption = "Summary Statistics on Demographic Characteristics: Persons by gender")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 1.3 Summary Statistics on Demographic Characteristics: Drivers and Workers
+```{r 1.3}
+tab13a <-  Person %>%
+  filter(can_drive== "Yes, drives") %>%
+  group_by(year, agecat) %>%
+  summarise(
+    Drivers = sum(person_weight)
+  ) %>%
+  mutate(
+    pctDriver = Drivers/sum(Drivers),
+    pctDriver = percent(pctDriver, accuracy = 0.1)
+  )%>%
+  select(-Drivers) %>%
+  pivot_wider(names_from = "agecat", values_from = pctDriver) %>%
+  select(c("Under 18", "18-34", "35-64", "65+")) %>%
+  t()
+
+my_kable(tab13a, caption = "Drivers by age group")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab13b <-  Person %>%
+  filter(can_drive== "Yes, drives") %>%
+  group_by(year, gender) %>%
+  summarise(
+    Drivers = sum(person_weight)
+  ) %>%
+  mutate(
+    pctDriver = Drivers/sum(Drivers),
+    pctDriver = percent(pctDriver, accuracy = 0.1)
+  )  %>%
+  select(-Drivers) %>%
+  pivot_wider(names_from = "gender", values_from = pctDriver) %>%
+  t()
+
+my_kable(tab13b, caption = "Drivers by gender")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab13c <- Person %>%
+  filter(num_jobs!="") %>%
+  group_by(year, gender) %>%
+  summarise(
+    Population = sum(person_weight, na.rm=T)
+  ) %>%
+  mutate(
+    pct = Population/sum(Population),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-Population) %>%
+  pivot_wider(names_from = "gender", values_from = pct)%>%
+  t()
+
+my_kable(tab13c, caption = "Workers by gender")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab13d <- Person %>%
+  filter(num_jobs!="") %>%
+  group_by(year, agecat) %>%
+  summarise(
+    Population = sum(person_weight, na.rm=T)
+  ) %>%
+  mutate(
+    pct = Population/sum(Population),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-Population) %>%
+  pivot_wider(names_from = "agecat", values_from = pct)%>%
+  select(c("Under 18", "18-34", "35-64", "65+")) %>%
+  t()
+
+my_kable(tab13d, caption = "Workers by age groups")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab13e <- HH %>%
+  group_by(year, num_workers) %>%
+  summarise(
+    hh = sum(hh_weight)
+  ) %>%
+  mutate(
+    pct = hh/sum(hh),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-hh) %>%
+  pivot_wider(names_from = "num_workers", values_from = pct)%>%
+  t()
+
+my_kable(tab13e, caption = "Households by number of workers")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 1.4 Total Travel Stats (vehicle trips, person trips, VMT, and PMT)
+```{r 1.4}
+tab14 <- Trips %>%
+  mutate(
+    per_trip = trip_weight,
+    veh_trip = ifelse(mode_simple == "auto", trip_weight, 0),
+    PMT = trip_weight*distance_miles,
+    VMT = ifelse(driver == "Driver", trip_weight*distance_miles, 0)
+  ) %>%
+  group_by(year) %>%
+  summarise(
+    Tot_per_trip = sum(per_trip, na.rm = T),
+    Tot_veh_trip = sum(veh_trip, na.rm = T),
+    Tot_VMT = sum(VMT, na.rm = T),
+    Tot_PMT = sum(PMT, na.rm = T)
+  ) %>%
+  as.data.frame()%>%
+  t()
+
+my_kable(tab14, caption = "Total statistics on vehicle trips, person trips, VMT, and PMT")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 1.5 Average Travel Stats (persons/HH, vehicles/HH, drivers/HH, workers/HH, vehicles/driver, vehicles/worker)
+```{r 1.5}
+tab15a <- HH %>%
+  group_by(year) %>%
+  summarise(
+    hh = sum(hh_weight),
+    vehicle = sum(num_vehicles*hh_weight)
+  ) %>%
+  mutate(
+    'Avg. Vehiles per HH' = vehicle/hh
+  )
+
+tab15b <- Person %>%
+  mutate(
+    driver = ifelse(can_drive== "Yes, drives", 1,0),
+    worker = ifelse(num_jobs!="", 1,0)
+  )%>%
+  group_by(year) %>%
+  summarise(
+    people = sum(person_weight, na.rm = T),
+    driver = sum(driver*person_weight, na.rm = T),
+    worker = sum(worker*person_weight, na.rm = T)
+  ) 
+
+tab15 <- merge(tab15a, tab15b, by = "year")%>%
+  mutate(
+    'Avg. Person per HH' = people/hh,
+    'Avg. Driver per HH' = driver/hh,
+    'Avg. Worker per HH' = worker/hh,
+    'Avg. Vehicles per Driver' = vehicle/driver,
+    'Avg. Vehicles per Worker' = vehicle/worker
+  ) %>%
+  select(-hh, -vehicle, -people, -driver, -worker)%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab15, caption = "Average statistics on persons/HH, vehicles/HH, drivers/HH, workers/HH, vehicles/driver, vehicles/worker")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 1.6 Household by Income Group
+```{r 1.6}
+tab16 <- HH %>%
+  group_by(year, income_broad) %>%
+  summarise(
+    hh = sum(hh_weight)
+  ) %>%
+  mutate(
+    pct = hh/sum(hh),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(year, income_broad, pct) %>%
+  pivot_wider(names_from = "income_broad", values_from = pct)%>%
+  t()
+
+my_kable(tab16, caption = "Household by Income Group")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 1.7 Workers by auto ownership
+```{r 1.7}
+tab17_tot <- HH %>%
+  group_by(year) %>%
+  summarise(hh_tot = sum(hh_weight))
+
+tab17 <- HH %>%
+  mutate(
+    num_workersalt = ifelse(num_workers>=3, "3+", as.character(num_workers))
+  ) %>%
+  group_by(year, num_workersalt, nveh) %>%
+  summarise(
+    hh = sum(hh_weight)
+  ) %>%
+  left_join(tab17_tot, by = "year") %>%
+  mutate(
+    pct = hh/hh_tot,
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(year, num_workersalt, nveh, pct) %>%
+  pivot_wider(names_from = "num_workersalt", values_from = pct)%>%
+  t()
+
+my_kable(tab17, caption = "Workers by auto ownership")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+
+## 2. Household Travel
+### 2.1 Daily vehicle trips/HH 
+```{r 2.1}
+tab21a <- Trips %>%
+  mutate(
+    veh_trip = ifelse(grepl("auto", mode_type), trip_weight, 0)
+  ) %>%
+  group_by(year) %>%
+  summarise(tot_veh_trip = sum(veh_trip))
+
+tab21b <- HH %>%
+  group_by(year) %>%
+  summarise(
+    hh = sum(hh_weight))
+
+tab21 <- tab21a %>%
+  left_join(tab21b, by = "year") %>%
+  mutate('Daily vehicle trips/HH' = tot_veh_trip/hh) %>%
+  select(-tot_veh_trip, -hh) %>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab21, caption = "Daily vehicle trips/HH")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 2.2 Daily person trips/HH 
+```{r 2.2}
+tab22a <- Trips %>%
+  group_by(year) %>%
+  summarise(tot_per_trip = sum(trip_weight))
+
+tab22b <- HH %>%
+  group_by(year) %>%
+  summarise(
+    hh = sum(hh_weight))
+
+tab22 <- tab22a %>%
+  left_join(tab22b, by = "year") %>%
+  mutate('Daily person trips/HH' = tot_per_trip/hh)%>%
+  select(-tot_per_trip, -hh) %>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab22, caption = "Daily person trips/HH")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 2.3 Daily person trips by trip purpose: Trip percentages and trip rates
+```{r 2.3}
+tab23a <- Trips %>%
+  filter(trip_purpose!="") %>%
+  group_by(year, trip_purpose) %>%
+  summarise(tot_per_trip = sum(trip_weight)) %>%
+  mutate(
+    pct = tot_per_trip/sum(tot_per_trip, na.rm = T),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-tot_per_trip) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = pct) %>%
+  select(c("year", "Home to Work", "Home to Shop", "Home to School", "Home to University", "Home to Other", "Other to other"))%>%
+  t()
+
+my_kable(tab23a, caption = "Trip percentages")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab23b1 <- HH %>%
+  group_by(year) %>%
+  summarise(
+    tot_hh = sum(hh_weight))
+
+tab23b <- Trips %>%
+  filter(trip_purpose!="") %>%
+  group_by(year, trip_purpose) %>%
+  summarise(tot_per_trip = sum(trip_weight)) %>%
+  left_join(tab23b1, by = "year") %>%
+  mutate(
+    pct = tot_per_trip/tot_hh
+  ) %>%
+  select(-tot_per_trip, -tot_hh) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = pct) %>%
+  #select(c("year", "Home to Work", "Home to Shop", "Home to School", "Home to University", "Home to Other", "Other to other"))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab23b, caption = "Trip rates")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 2.4 Daily person trips by mode of transportation: Trip percentages and trip rates
+```{r 2.4}
+tab24a <- Trips %>%
+  group_by(year, mode_simple) %>%
+  summarise(tot_per_trip = sum(trip_weight)) %>%
+  mutate(
+    pct = tot_per_trip/sum(tot_per_trip),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-tot_per_trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("year", "auto", "bus", "school bus", "walkbike", "other"))%>%
+  t()
+
+my_kable(tab24a, caption = "Daily person trips by mode of transportation")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab24b1 <- HH %>%
+  group_by(year, income_broad) %>%
+  summarise(
+    tot_hh = sum(hh_weight))
+```
+
+### 2.5 Daily person trips by income group: Trip percentages and trip rates
+```{r 2.5}
+tab25a <- Trips %>%
+  group_by(year, income_broad) %>%
+  summarise(tot_per_trip = sum(trip_weight)) %>%
+  mutate(
+    pct = tot_per_trip/sum(tot_per_trip),
+    pct = percent(pct, accuracy = 0.1)
+    )%>%
+  select(-tot_per_trip) %>%
+  pivot_wider(names_from = "income_broad", values_from = pct) %>%
+  t()
+
+my_kable(tab25a, caption = "Trip percentages")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab25b1 <- HH %>%
+  group_by(year, income_broad) %>%
+  summarise(
+    tot_hh = sum(hh_weight))
+
+tab25b <- Trips %>%
+  group_by(year, income_broad) %>%
+  summarise(
+    tot_trip = sum(trip_weight)) %>%
+  left_join(tab25b1, by = c("year", "income_broad")) %>%
+  mutate('Daily person trips/HH' = tot_trip/tot_hh)%>%
+  select(-tot_hh, -tot_trip) %>%
+  pivot_wider(names_from = "income_broad", values_from = 'Daily person trips/HH') %>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab25b, caption = "Trip rates")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 2.6 Daily person miles of travel/HH by trip purpose 
+```{r 2.6}
+tab26a <- Trips %>%
+  mutate(PMT = trip_weight*distance_miles) %>%
+  group_by(year, trip_purpose) %>%
+  summarise(
+    Tot_PMT = sum(PMT, na.rm = T)
+  )
+
+tab26b <- HH %>%
+  group_by(year) %>%
+  summarise(
+    hh = sum(hh_weight))
+
+tab26 <- tab26a %>%
+  left_join(tab26b, by = "year") %>%
+  mutate('Daily person miles of travel/HH' = Tot_PMT/hh)%>%
+  select(-hh, -Tot_PMT) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = 'Daily person miles of travel/HH') %>%
+  select(c("year", "Home to Work", "Home to Shop", "Home to School","Home to Other", "Other to other"))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab26, caption = "Daily person miles of travel/HH by trip purpose")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 2.7 Average vehicle trip length by trip purpose
+```{r 2.7}
+tab27 <- Trips %>%
+  group_by(year, trip_purpose) %>%
+  summarise(
+    distance_miles = weighted.mean(distance_miles,trip_weight,na.rm = T)) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = 'distance_miles') %>%
+  select(c("year", "Home to Work", "Home to Shop", "Home to School","Home to Other", "Other to other"))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab27, caption = "Average vehicle trip length by trip purpose")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 2.8 Average person trips by hhsize and hh auto
+```{r 2.8}
+tab28a1 <- HH %>%
+  group_by(year, HHSize) %>%
+  summarise(
+    tot_hh = sum(hh_weight))
+
+tab28a <- Trips %>%
+  left_join(HH %>% select(c("hh_id", "HHSize")), by = "hh_id") %>%
+  group_by(year, HHSize) %>%
+  summarise( tot_trip = sum(trip_weight)) %>%
+  left_join(tab28a1, by = c("year", "HHSize")) %>%
+  mutate('Daily person trips/HH' = tot_trip/tot_hh) %>%
+  select(-tot_trip,-tot_hh) %>%
+  pivot_wider(names_from = "HHSize", values_from = 'Daily person trips/HH') %>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab28a, caption = "Household size")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab28b1 <- HH %>%
+  group_by(year, nveh) %>%
+  summarise(
+    tot_hh = sum(hh_weight))
+
+tab28b <- Trips %>%
+  left_join(HH %>% select(c("hh_id", "nveh")), by = "hh_id") %>%
+  group_by(year, nveh) %>%
+  summarise( tot_trip = sum(trip_weight)) %>%
+  left_join(tab28b1, by = c("year", "nveh")) %>%
+  mutate('Daily person trips/HH' = tot_trip/tot_hh) %>%
+  select(-tot_trip,-tot_hh) %>%
+  pivot_wider(names_from = "nveh", values_from = 'Daily person trips/HH') %>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab28b, caption = "Vehicle availability")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+
+## 3. Person
+### 3.1 Person travel statistics (daily person trips/person, PMT/person, PHT/person, vehicle trips/driver, daily VMT/driver, PHT/driver, avg person trip length, avg veh trip length)
+```{r 3.1}
+tab31a <- Person %>%
+  group_by(year) %>%
+  summarise(
+    people = sum(person_weight, na.rm = T)
+  ) 
+
+tab31b <- HH %>%
+  group_by(year) %>%
+  summarise(
+    hh = sum(hh_weight, na.rm = T)
+  ) 
+
+tab31c <- Trips %>%
+    mutate(
+    per_trip = trip_weight,
+    veh_trip = ifelse(grepl("auto", mode_type), trip_weight, 0),
+    PMT = trip_weight*distance_miles,
+    VMT2 = ifelse(grepl("auto", mode_type), trip_weight*distance_miles, 0)
+  ) %>%
+  group_by(year) %>%
+  summarise(
+    Tot_per_trip = sum(per_trip, na.rm = T),
+    Tot_veh_trip = sum(veh_trip, na.rm = T),
+    Tot_VMT2 = sum(VMT2, na.rm = T),
+    Tot_PMT = sum(PMT, na.rm = T),
+    'Avg. Person Trip Length' = weighted.mean(distance_miles, per_trip, na.rm = T),
+    'Avg. Vehicle Trip Length' = weighted.mean(distance_miles, veh_trip, na.rm = T)
+  )
+
+tab31 <- merge(tab31a, tab31b, by = "year") %>%
+  merge(tab31c, by = "year") %>%
+  mutate(
+    'Daily Person Trips per Person' = Tot_per_trip/people,
+    'Person Miles Traveled per Person' = Tot_PMT/people,
+    'Daily VMT per household' = Tot_VMT2/hh
+  ) %>%
+  select(-c(people, hh, Tot_per_trip, Tot_veh_trip,Tot_VMT2,Tot_PMT))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab31, caption = "Person travel statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.2 Daily Trip Rates and Person Miles of Travel per Person by Trip Purpose
+```{r 3.2}
+tab32a <- Person %>%
+  group_by(year) %>%
+  summarise(
+    people = sum(person_weight),
+  ) 
+
+tab32b <- Trips %>%
+  mutate(PMT = trip_weight*distance_miles) %>%
+  group_by(year, trip_purpose) %>%
+  summarise(
+    tot_per_trip = sum(trip_weight),
+    tot_PMT = sum(PMT, na.rm = T))
+
+tab32 <- tab32b %>%
+  left_join(tab32a, by = "year") %>%
+  mutate(
+    'Daily Trip Rates' = tot_per_trip/people,
+    'Person Miles of Travel per Person' = tot_PMT/people
+  )%>%
+  select(-tot_per_trip, -tot_PMT, -people)
+
+tab32a <- tab32 %>%
+  select(-'Person Miles of Travel per Person') %>%
+  pivot_wider(names_from = "trip_purpose", values_from = 'Daily Trip Rates') %>%
+  select(c("year", "Home to Work", "Home to Shop", "Home to School","Home to Other", "Other to other"))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab32a, caption = "Daily Trip Rates by Trip Purpose")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab32b <- tab32 %>%
+  select(-'Daily Trip Rates') %>%
+  pivot_wider(names_from = "trip_purpose", values_from = 'Person Miles of Travel per Person') %>%
+  select(c("year", "Home to Work", "Home to Shop", "Home to School","Home to Other", "Other to other"))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab32b, caption = "Person Miles of Travel per Person by Trip Purpose")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 3.3 Trends in Work locations
+```{r 3.3}
+tab33 <- Person %>%
+  filter(job_type!="") %>%
+  group_by(year, job_type) %>%
+  summarise(
+    people = sum(person_weight),
+  ) %>%
+  mutate(
+    pct = people/sum(people),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people) %>%
+  pivot_wider(names_from = "job_type", values_from = pct)%>%
+  t()
+
+my_kable(tab33, caption = "Trends in Work locations")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.4 Person trips made by different age groups (child, adult, senior)
+```{r 3.4}
+tab34 <- Trips %>%
+  left_join(Person %>% select(c("person_id", "agecat")), by="person_id") %>%
+  group_by(year, agecat) %>%
+  summarise(
+    trip = sum(trip_weight)
+  ) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "agecat", values_from = pct) %>%
+  select(c("Under 18", "18-34", "35-64", "65+"))%>%
+  t()
+
+my_kable(tab34, caption = "Person trips made by different age groups")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 3.5 Percent of Person Trips by Mode of Transportation and Trip Purpose 
+```{r 3.5}
+tab35 <- Trips %>%
+  filter(trip_purpose!="") %>%
+  group_by(trip_purpose, year, mode_simple) %>%
+  summarise(trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = pct) %>%
+  select(c("year", "mode_simple", "Home to Work", "Home to Shop", "Home to School","Home to Other", "Other to other"))%>%
+  t()
+
+my_kable(tab35, caption = "Percent of Person Trips by Mode of Transportation and Trip Purpose")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 3.6 Percent of Person Trips by Trip Purpose and Gender
+```{r 3.6}
+tab36 <- Trips %>%
+  left_join(Person %>% select(person_id, gender), by="person_id") %>%
+  group_by(trip_purpose, year, gender) %>%
+  summarise(trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = pct) %>%
+  select(c("year", "gender","Home to Work", "Home to Shop", "Home to School","Home to Other", "Other to other"))%>%
+  t()
+
+
+my_kable(tab36, caption = "Percent of Person Trips by Trip Purpose and Gender")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.7 Average Daily Person Trips by Age and Gender
+```{r 3.7}
+tab37a <- Person %>%
+  group_by(year, gender, agecat) %>%
+  summarise(people = sum(person_weight))
+
+tab37b <- Trips %>%
+  left_join(Person %>% select(person_id, agecat, gender), by="person_id") %>%
+  group_by(year, gender, agecat) %>%
+  summarise(trip = sum(trip_weight))
+
+tab37 <- tab37b %>%
+  left_join(tab37a, by=c("year", "agecat", "gender")) %>%
+  mutate('Daily Trip Rates' = trip/people) %>%
+  select(-people, -trip) %>%
+  pivot_wider(names_from = "agecat", values_from = 'Daily Trip Rates')%>%
+  select(c("Under 18", "18-34", "35-64", "65+"))%>%
+  mutate_if(is.numeric, format, digits=1, nsmall = 2) %>%
+  t()
+
+my_kable(tab37, caption = "Average Daily Person Trips by Age and Gender")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.8 Travel for Work
+```{r 3.8}
+tab38a <- Trips %>%
+  filter(trip_purpose == "Home to Work") %>%
+  group_by(year) %>%
+  summarise(
+    '# of Trips' = sum(trip_weight),
+    PMT = sum(trip_weight*distance_miles, na.rm = T)
+  ) %>%
+  mutate(across(where(is.numeric), ~round(.)))
+
+my_kable(tab38a, caption = "Work trip statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab38b <- Trips %>%
+  filter(trip_purpose == "Home to Work") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "bus", "walkbike", "other")) %>% #
+  t()
+
+my_kable(tab38b, caption = "Work trips by mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.9 Travel for Shop
+```{r 3.9}
+tab39a <- Trips %>%
+  filter(trip_purpose == "Home to Shop") %>%
+  group_by(year) %>%
+  summarise(
+    '# of Trips' = sum(trip_weight),
+    PMT = sum(trip_weight*distance_miles, na.rm = T)
+  )%>%
+  mutate(across(where(is.numeric), ~round(.)))
+
+my_kable(tab39a, caption = "Shopping trip statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab39b <- Trips %>%
+  filter(trip_purpose == "Home to Shop") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "bus", "walkbike", "other")) %>%
+  t()
+
+my_kable(tab39b, caption = "Shopping trips by mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.10 Travel for School
+```{r 3.10}
+tab310a <- Trips %>%
+  filter(trip_purpose == "Home to School") %>%
+  group_by(year) %>%
+  summarise(
+    '# of Trips' = sum(trip_weight),
+    PMT = sum(trip_weight*distance_miles, na.rm = T)
+  )%>%
+  mutate(across(where(is.numeric), ~round(.)))
+
+my_kable(tab310a, caption = "School trip statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab310b <- Trips %>%
+  filter(trip_purpose == "Home to School") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "school bus", "bus", "walkbike", "other")) %>% ##"school bus"  may not be applicable for certain counties
+  t()
+
+my_kable(tab310b, caption = "School trips by mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.11 Travel for University
+```{r 3.11}
+tab311a <- Trips %>%
+  filter(trip_purpose == "Home to University") %>%
+  group_by(year) %>%
+  summarise(
+    '# of Trips' = sum(trip_weight),
+    PMT = sum(trip_weight*distance_miles, na.rm = T)
+  )%>%
+  mutate(across(where(is.numeric), ~round(.)))
+
+my_kable(tab311a, caption = "University trip statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab311b <- Trips %>%
+  filter(trip_purpose == "Home to University") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "school bus", "bus", "walkbike", "other")) %>% #"school bus",
+  t()
+
+my_kable(tab311b, caption = "University trips by mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.12 Travel for Other Reasons - Home to Other
+```{r 3.12}
+tab312a <- Trips %>%
+  filter(trip_purpose == "Home to Other") %>%
+  group_by(year) %>%
+  summarise(
+    '# of Trips' = sum(trip_weight),
+    PMT = sum(trip_weight*distance_miles, na.rm = T)
+  )%>%
+  mutate(across(where(is.numeric), ~round(.)))
+
+my_kable(tab312a, caption = "Home to Other trip statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab312b <- Trips %>%
+  filter(trip_purpose == "Home to Other") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "school bus", "bus", "walkbike", "other")) %>%
+  t()
+
+my_kable(tab312b, caption = "Home to Other trips by mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 3.13 Travel for Other Reasons - Other to Other
+```{r 3.13}
+tab313a <- Trips %>%
+  filter(trip_purpose == "Other to other") %>%
+  group_by(year) %>%
+  summarise(
+    '# of Trips' = sum(trip_weight),
+    PMT = sum(trip_weight*distance_miles, na.rm = T)
+  )%>%
+  mutate(across(where(is.numeric), ~round(.)))
+
+my_kable(tab313a, caption = "Other to other trip statistics")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab313b <- Trips %>%
+  filter(trip_purpose == "Other to other") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight)) %>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)) %>%
+  select(-trip) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "school bus", "bus", "walkbike", "other")) %>%
+  t()
+
+my_kable(tab313b, caption = "Other to other trips by mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+
+## 4. Special Trip Patterns
+### 4.1 Home deliveries (at personal level)
+```{r 4.1, eval = FALSE}
+## For home delivery and takeout, since 2021 is at personal level while 2016 and 
+## 2018 are at HH level, aggregation is used to produce consistent measures.
+hhDay <- Day %>%
+  group_by(year, hh_id, day_num) %>%
+  summarise(
+    delivery_packages_home = sum(delivery_packages_home),
+    delivery_takeout = sum(delivery_takeout),
+    weight = mean(dayweight) 
+  ) %>%
+  mutate(
+    delivery_packages_home = ifelse(delivery_packages_home>0, 1, 0),
+    delivery_takeout = ifelse(delivery_takeout>0, 1, 0)
+  ) 
+
+
+tab41a <- hhDay %>%
+  filter(!is.na(delivery_packages_home)) %>%
+  group_by(year, delivery_packages_home) %>%
+  summarise(weight = sum(weight, na.rm = T)) %>%
+  mutate(
+    pct = weight/sum(weight)
+  ) %>%
+  select(-weight) %>%
+  pivot_wider(names_from = "delivery_packages_home", values_from = pct) %>%
+  t()
+
+tab41b <- hhDay %>%
+  filter(!is.na(delivery_takeout)) %>%
+  group_by(year, delivery_takeout) %>%
+  summarise(weight = sum(weight, na.rm = T)) %>%
+  mutate(
+    pct = weight/sum(weight)
+  ) %>%
+  select(-weight) %>%
+  pivot_wider(names_from = "delivery_takeout", values_from = pct) %>%
+  t()
+if(1==0){
+tab41c <- prep_day_2021 %>%
+  mutate(
+    delivery_groceries = ifelse(delivery_groceries==995, NA, delivery_groceries)) %>%
+  group_by(hh_id, day_num) %>%
+  summarise(
+    delivery_groceries = sum(delivery_groceries),
+    weight = mean(dayweight)
+  ) %>%
+  filter(!is.na(delivery_groceries)) %>%
+  group_by(delivery_groceries) %>%
+  summarise(weight = sum(weight)) %>%
+  mutate(
+    pct = weight/sum(weight)
+  ) %>%
+  select(-weight) %>%
+  pivot_wider(names_from = "delivery_groceries", values_from = pct) %>%
+  t()
+
+my_kable(tab41c)%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+}
+
+my_kable(tab41a)%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+my_kable(tab41b)%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+
+```
+
+### 4.2 Non motorized trips
+```{r 4.2}
+tab42a <- Trips %>%
+  filter(mode_simple == "walkbike") %>%
+  group_by(year) %>%
+  summarise(
+    nmtrips = sum(trip_weight, na.rm = T)
+  )
+
+tab42b<- Trips %>%
+  group_by(year) %>%
+  summarise(
+    trips = sum(trip_weight, na.rm = T)
+  )
+
+tab42 <- merge(tab42a, tab42b, by = "year") %>%
+  mutate(
+    pct = nmtrips/trips,
+    "Percentage of NM Trips" = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-nmtrips, -trips, -pct)%>%
+  t()
+
+my_kable(tab42, caption = "Non motorized trips")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 4.3 Distribution of Workers by Usual Commute Mode
+```{r 4.3}
+tab43 <- Person %>%
+  filter(!is.na(work_mode)) %>%
+  group_by(year, work_mode) %>%
+  summarise(
+    people = sum(person_weight, na.rm = T)
+  ) %>%
+  mutate(
+    pct = people/sum(people),
+    pct = percent(pct, accuracy = 0.1)
+  ) %>%
+  replace_na(list(work_mode='N/A')) %>%
+  select(-people) %>%
+  pivot_wider(names_from = "work_mode", values_from = pct)%>%
+  t()
+
+my_kable(tab43, caption = "Distribution of workers by usual commute mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 4.4 Commute Trips % and avg length
+```{r 4.4}
+tab44 <- Trips %>%
+  filter(trip_purpose == "Home to Work") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T),
+    tlength = weighted.mean(distance_miles, trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    pct = percent(pct, accuracy = 0.1)
+  ) 
+
+tab44a <- tab44 %>%
+  select(-trip, -tlength) %>%
+  pivot_wider(names_from = "mode_simple", values_from = pct) %>%
+  select(c("auto", "bus", "walkbike", "other")) %>% #
+  t()
+
+tab44b <- tab44 %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "mode_simple", values_from = tlength) %>%
+  select(c("auto", "bus", "walkbike", "other")) %>% #
+  mutate_if(is.numeric, format, digits=2, nsmall = 2) %>%
+  t()
+
+my_kable(tab44a, caption = "Percent of commute trips")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+my_kable(tab44b, caption = "Average length of commute trips")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 4.5 Distribution of Person Trips by Start Time of Trip
+```{r 4.5}
+tab45 <- Trips %>%
+  mutate(
+    starttime = floor(departure_time/60),
+    starttime = ifelse(starttime>24, starttime-24, starttime)
+  ) %>%
+  group_by(year, starttime) %>%
+  summarise(
+    trip = sum(trip_weight)
+  ) %>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "starttime", values_from = 'Percent of Trips')%>%
+  t()
+
+my_kable(tab45, caption = "Distribution of trips by start time of trip")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+```
+
+### 4.6 Percent of Households by Availability of Household Vehicles
+```{r 4.6}
+tab46 <- HH %>%
+  group_by(year, nveh) %>%
+  summarise(
+    hh = sum(hh_weight)
+  ) %>%
+  mutate(
+    pct = hh/sum(hh),
+    'Percent of HH' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-hh, -pct) %>%
+  pivot_wider(names_from = "nveh", values_from = 'Percent of HH') %>%
+  t()
+
+my_kable(tab46, caption = "Percentage of households by availability of household vehicles")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE) 
+
+```
+
+### 4.7 Telecommute Frequency
+```{r 4.7}
+tab47 <- Person %>%
+  filter(!is.na(telework_freq)) %>%
+  mutate(
+    telework_freq_simple = case_when(
+      telework_freq == "4 days a week" | telework_freq == "2-3 days a week" ~ "2-4 days a week",
+      telework_freq == "1 day a week" | telework_freq == "1 day every 2 weeks" | telework_freq == "1-3 days per month" ~ "1-4 days a month",
+      TRUE ~ telework_freq
+    )) %>%
+  group_by(year, telework_freq_simple) %>%
+  summarise(
+    people = sum(person_weight)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of People' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct) %>%
+  pivot_wider(names_from = "telework_freq_simple", values_from = 'Percent of People') %>%
+  select(c("5 or more days a week", "2-4 days a week", "1-4 days a month", "Less than monthly", "Never"))%>%
+  t()
+
+my_kable(tab47, caption = "Telecommute frequency")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE) 
+```
+
+### 4.8 Transit Trips by HH Income
+```{r 4.8}
+tab48 <- Trips %>%
+  filter(mode_type == "bus") %>%
+  group_by(year, income_broad) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "income_broad", values_from = 'Percent of Trips') %>%
+  t()
+  
+my_kable(tab48, caption = "Transit trips by HH income")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+```
+
+### 4.9 Non-auto trip by distance bin
+```{r 5.1}
+tab51a <- Trips %>%
+  filter(mode_simple!="auto" & mode_simple!="school bus") %>%
+  group_by(year, distbin) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "distbin", values_from = 'Percent of Trips') %>%
+  select(c("Under 1 Mile", "Between 1 - 6 Miles", "Over 6 Miles")) %>%
+  t()
+
+my_kable(tab51a, caption = "Non-auto trip by distance bin")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab51b <- Trips %>%
+  filter(mode_simple!="auto" & mode_simple!="school bus") %>%
+  group_by(year, distbin, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "distbin", values_from = 'Percent of Trips') %>%
+  t()
+
+my_kable(tab51b, caption = "Non-auto trip by distance bin and mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### 4.10 Short NM Trips by Income
+```{r 5.2}
+tab52 <- Trips %>%
+  filter(mode_simple!="auto" & mode_simple!="school bus" & distbin == "Between 1 - 6 Miles") %>%
+  group_by(mode_simple, year, income_broad ) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "year", values_from = 'Percent of Trips') %>%
+  t()
+
+my_kable(tab52, caption = "1-6 Miles non-motorized trips by income")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 4.11 Short NM Trips by Race
+```{r 5.3}
+tab53 <- Trips %>%
+  left_join(Person %>% select(c("person_id", "race_simple")), by = "person_id") %>%
+  filter(mode_simple!="auto" & mode_simple!="school bus" & distbin == "Between 1 - 6 Miles") %>%
+  group_by(mode_simple, year, race_simple) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "year", values_from = 'Percent of Trips') %>%
+  t()
+
+my_kable(tab53, caption = "1-6 Miles non-motorized trips by race")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 4.12 Short NM Trips by Auto Ownership
+```{r 5.4}
+tab54 <- Trips %>%
+  left_join(HH %>% select(c("hh_id", "autoown")), by = "hh_id") %>%
+  filter(mode_simple!="auto" & mode_simple!="school bus" & distbin == "Between 1 - 6 Miles") %>%
+  group_by(mode_simple, year, autoown) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "year", values_from = 'Percent of Trips') %>%
+  t()
+
+my_kable(tab54, caption = "1-6 Miles non-motorized trips by auto ownership")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 4.13 Person Trips by Seniors
+```{r 5.5}
+tab55 <- Trips %>%
+  left_join(Person %>% select(c("person_id", "agecat")), by="person_id") %>%
+  filter(agecat == "65+") %>%
+  group_by(year) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  t()
+
+my_kable(tab55,  caption = "Percent of person trips made by seniors")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 4.14 Reason for Travel by Seniors
+```{r 5.6}
+tab56 <- Trips %>%
+  left_join(Person %>% select(c("person_id", "agecat")), by="person_id") %>%
+  filter(agecat == "65+") %>%
+  group_by(year, trip_purpose) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "trip_purpose", values_from = 'Percent of Trips') %>%
+  select(c("year", "Home to Work", "Home to Shop","Home to Other", "Other to other", "NA"))%>%
+  t()
+
+my_kable(tab56, caption = "Reason for travel by seniors")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+
+### 4.15 Mode of Travel by Seniors
+```{r 5.7}
+tab57 <- Trips %>%
+  left_join(Person %>% select(c("person_id", "agecat")), by="person_id") %>%
+  filter(agecat == "65+") %>%
+  group_by(year, mode_simple) %>%
+  summarise(
+    trip = sum(trip_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = trip/sum(trip),
+    'Percent of Trips' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-trip, -pct) %>%
+  pivot_wider(names_from = "mode_simple", values_from = 'Percent of Trips') %>%
+  select(c("year", "auto", "bus", "walkbike", "other"))%>%
+  t()
+
+my_kable(tab57, caption = "Mode of travel by seniors")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+### 4.16 Pre- and During-COVID Commute Frequency
+```{r 5.8}
+tab58a <-Person %>%
+  filter(year == 2021 & commute_freq_pre_covid !=995) %>%
+  group_by(commute_freq_pre_covid) %>%
+    summarise(
+    people = sum(person_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of people' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct)
+
+my_kable(tab58a, caption = "Pre-COVID commute frequency")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab58b <-Person %>%
+  filter(year == 2021 & commute_freq !=995) %>%
+  group_by(commute_freq) %>%
+    summarise(
+    people = sum(person_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of people' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct)
+
+my_kable(tab58b, caption = "During-COVID commute frequency")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+
+
+### 4.17 Pre- and Post-COVID Work Location
+```{r 5.9}
+tab59a <-Person %>%
+  filter(year == 2021 & work_loc_type_post_covid !=995) %>%
+  group_by(work_loc_type_post_covid) %>%
+    summarise(
+    people = sum(person_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of people' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct)
+
+my_kable(tab59a, caption = "Post-COVID work location")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab59b <-Person %>%
+  filter(year == 2021 & work_loc_type_pre_covid !=995) %>%
+  group_by(work_loc_type_pre_covid) %>%
+    summarise(
+    people = sum(person_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of people' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct)
+
+my_kable(tab59b, caption = "Pre-COVID work location")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+
+### 4.18 Pre- and During-COVID Work Mode
+```{r 5.10}
+tab59a <-Person %>%
+  filter(year == 2021 & work_mode_pre_covid !=995) %>%
+  group_by(work_mode_pre_covid) %>%
+    summarise(
+    people = sum(person_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of people' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct)
+
+my_kable(tab59a, caption = "Pre-COVID work mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+tab59b <-Person %>%
+  filter(year == 2021 & work_mode !=995) %>%
+  group_by(work_mode) %>%
+    summarise(
+    people = sum(person_weight, na.rm = T)
+  )%>%
+  mutate(
+    pct = people/sum(people),
+    'Percent of people' = percent(pct, accuracy = 0.1)
+  ) %>%
+  select(-people, -pct)
+
+my_kable(tab59b, caption = "During-COVID work mode")%>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+```{r 6.0 Save outputs}
+wb <- createWorkbook()
+
+for (nm in names(all_tables)) {
+  addWorksheet(wb, nm)
+  writeData(wb, nm, all_tables[[nm]], rowNames = TRUE)
+}
+
+saveWorkbook(wb, "survey_tabulation.xlsx", overwrite = TRUE)
+```
