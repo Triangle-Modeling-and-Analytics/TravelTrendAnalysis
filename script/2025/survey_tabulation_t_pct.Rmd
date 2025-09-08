@@ -64,9 +64,19 @@ Trips <- Trips %>%
 all_tables <- list()
 
 # wrapper function
-my_kable <- function(x, ...) {
-  all_tables[[paste0("Table", length(all_tables) + 1)]] <<- x
-  kable(x, ...)
+my_kable <- function(x, caption = NULL, ...) {
+  label <- opts_current$get("label")  # current chunk label
+  if (is.null(label)) label <- "unnamed"
+  
+  # Count how many tables already came from this chunk
+  existing <- grep(paste0("^", label, "_?"), names(all_tables), value = TRUE)
+  idx <- length(existing) + 1
+  
+  # Unique table key
+  table_name <- if (idx == 1) label else paste0(label, "_", idx)
+  
+  all_tables[[table_name]] <<- list(data = x, caption = caption)
+  kable(x, caption = caption, ...)
 }
 ```
 
@@ -1489,7 +1499,14 @@ wb <- createWorkbook()
 
 for (nm in names(all_tables)) {
   addWorksheet(wb, nm)
-  writeData(wb, nm, all_tables[[nm]], rowNames = TRUE)
+  tbl <- all_tables[[nm]]
+  
+  if (!is.null(tbl$caption)) {
+    writeData(wb, nm, tbl$caption, startRow = 1, startCol = 1)
+    writeData(wb, nm, tbl$data, startRow = 3, rowNames = TRUE, colNames = FALSE)
+  } else {
+    writeData(wb, nm, tbl$data, rowNames = TRUE, colNames = FALSE)
+  }
 }
 
 saveWorkbook(wb, "survey_tabulation.xlsx", overwrite = TRUE)
