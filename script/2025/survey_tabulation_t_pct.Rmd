@@ -65,16 +65,12 @@ all_tables <- list()
 
 # wrapper function
 my_kable <- function(x, caption = NULL, ...) {
-  label <- opts_current$get("label")  # current chunk label
+  label <- knitr::opts_current$get("label")
+  print(paste("Chunk label:", label))  # Debug line
   if (is.null(label)) label <- "unnamed"
-  
-  # Count how many tables already came from this chunk
   existing <- grep(paste0("^", label, "_?"), names(all_tables), value = TRUE)
   idx <- length(existing) + 1
-  
-  # Unique table key
   table_name <- if (idx == 1) label else paste0(label, "_", idx)
-  
   all_tables[[table_name]] <<- list(data = x, caption = caption)
   kable(x, caption = caption, ...)
 }
@@ -223,7 +219,7 @@ my_kable(tab13d, caption = "Workers by age groups")%>%
     kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
 tab13e <- HH %>%
-  group_by(year, num_workers) %>%
+  group_by(year, HHWorkers) %>%
   summarise(
     hh = sum(hh_weight)
   ) %>%
@@ -232,7 +228,7 @@ tab13e <- HH %>%
     pct = percent(pct, accuracy = 0.1)
   ) %>%
   select(-hh) %>%
-  pivot_wider(names_from = "num_workers", values_from = pct)%>%
+  pivot_wider(names_from = "HHWorkers", values_from = pct)%>%
   t()
 
 my_kable(tab13e, caption = "Households by number of workers")%>%
@@ -449,14 +445,14 @@ tab24a <- Trips %>%
   ) %>%
   select(-tot_per_trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("year", "auto", "bus", "school bus", "walkbike", "other"))%>%
+  select(c("year", "auto", "bus", "school bus", "walk", "bike", "other"))%>%
   t()
 
 my_kable(tab24a, caption = "Daily person trips by mode of transportation")%>%
     kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
 tab24b1 <- HH %>%
-  group_by(year, income_broad) %>%
+  group_by(year) %>%
   summarise(
     tot_hh = sum(hh_weight))
 ```
@@ -801,7 +797,7 @@ tab38b <- Trips %>%
     pct = percent(pct, accuracy = 0.1)) %>%
   select(-trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "bus", "walkbike", "other")) %>% #
+  select(c("auto", "bus", "walk", "bike", "other")) %>% #
   t()
 
 my_kable(tab38b, caption = "Work trips by mode")%>%
@@ -833,7 +829,7 @@ tab39b <- Trips %>%
     pct = percent(pct, accuracy = 0.1)) %>%
   select(-trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "bus", "walkbike", "other")) %>%
+  select(c("auto", "bus", "walk", "bike", "other")) %>%
   t()
 
 my_kable(tab39b, caption = "Shopping trips by mode")%>%
@@ -865,7 +861,7 @@ tab310b <- Trips %>%
     pct = percent(pct, accuracy = 0.1)) %>%
   select(-trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "school bus", "bus", "walkbike", "other")) %>% ##"school bus"  may not be applicable for certain counties
+  select(c("auto", "school bus", "bus", "walk", "bike", "other")) %>% ##"school bus"  may not be applicable for certain counties
   t()
 
 my_kable(tab310b, caption = "School trips by mode")%>%
@@ -897,7 +893,7 @@ tab311b <- Trips %>%
     pct = percent(pct, accuracy = 0.1)) %>%
   select(-trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "school bus", "bus", "walkbike", "other")) %>% #"school bus",
+  select(c("auto", "school bus", "bus", "walk", "bike", "other")) %>% #"school bus",
   t()
 
 my_kable(tab311b, caption = "University trips by mode")%>%
@@ -929,7 +925,7 @@ tab312b <- Trips %>%
     pct = percent(pct, accuracy = 0.1)) %>%
   select(-trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "school bus", "bus", "walkbike", "other")) %>%
+  select(c("auto", "school bus", "bus", "walk", "bike", "other")) %>%
   t()
 
 my_kable(tab312b, caption = "Home to Other trips by mode")%>%
@@ -961,7 +957,7 @@ tab313b <- Trips %>%
     pct = percent(pct, accuracy = 0.1)) %>%
   select(-trip) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "school bus", "bus", "walkbike", "other")) %>%
+  select(c("auto", "school bus", "bus", "walk", "bike", "other")) %>%
   t()
 
 my_kable(tab313b, caption = "Other to other trips by mode")%>%
@@ -1045,7 +1041,7 @@ my_kable(tab41b)%>%
 ### 4.2 Non motorized trips
 ```{r 4.2}
 tab42a <- Trips %>%
-  filter(mode_simple == "walkbike") %>%
+  filter(mode_simple == "walk" |mode_simple == "bike") %>%
   group_by(year) %>%
   summarise(
     nmtrips = sum(trip_weight, na.rm = T)
@@ -1107,13 +1103,13 @@ tab44 <- Trips %>%
 tab44a <- tab44 %>%
   select(-trip, -tlength) %>%
   pivot_wider(names_from = "mode_simple", values_from = pct) %>%
-  select(c("auto", "bus", "walkbike", "other")) %>% #
+  select(c("auto", "bus", "walk", "bike", "other")) %>% #
   t()
 
 tab44b <- tab44 %>%
   select(-trip, -pct) %>%
   pivot_wider(names_from = "mode_simple", values_from = tlength) %>%
-  select(c("auto", "bus", "walkbike", "other")) %>% #
+  select(c("auto", "bus", "walk", "bike", "other")) %>% #
   mutate_if(is.numeric, format, digits=2, nsmall = 2) %>%
   t()
 
@@ -1381,7 +1377,7 @@ tab57 <- Trips %>%
   ) %>%
   select(-trip, -pct) %>%
   pivot_wider(names_from = "mode_simple", values_from = 'Percent of Trips') %>%
-  select(c("year", "auto", "bus", "walkbike", "other"))%>%
+  select(c("year", "auto", "bus", "walk", "bike", "other"))%>%
   t()
 
 my_kable(tab57, caption = "Mode of travel by seniors")%>%

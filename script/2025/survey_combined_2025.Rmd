@@ -112,6 +112,7 @@ rm(hhconv, sheets, tab)
 remove_na_hh <- remove_na_hh %>% 
   mutate(
     HHSize = ifelse(num_people < 4, as.character(num_people), "4+"),
+    HHWorkers = ifelse(num_workers < 3, as.character(num_workers), "3+"),
     nveh = ifelse(num_vehicles < 3, as.character(num_vehicles), "3+"),
     vehratio = num_vehicles/num_workers,
     autoown = case_when(
@@ -562,9 +563,9 @@ det_home_place <- convert_purpose %>%
       o_lon, o_lat, home_lon, home_lat),
     d_home_dist = calc_dist(
       d_lon, d_lat, home_lon, home_lat),
-    o_place = ifelse(o_home_dist < 100, "H", "O"), 
+    o_place = ifelse(o_home_dist < 30, "H", "O"), 
     o_place = ifelse(is.na(o_place), "O", o_place),
-    d_place = ifelse(d_home_dist < 100, "H", "O"),
+    d_place = ifelse(d_home_dist < 30, "H", "O"),
     d_place = ifelse(is.na(d_place), "O", d_place),
   ) %>%
   select(-home_lat, -home_lon) %>%
@@ -586,7 +587,7 @@ school_loc <- remove_na_per %>%
   select(-hh_id, -home_lat, -home_lon, -hsdist, -year)
 
 
-
+# only check S place for K-12 and prek students
 det_sch_place <- det_home_place %>%
   left_join(school_loc, by = "person_id") %>%
   mutate(
@@ -595,14 +596,14 @@ det_sch_place <- det_home_place %>%
     o_place = case_when(
       is.na(o_sch_dist) ~ o_place,
       o_place == "H" ~ "H",
-      o_sch_dist < 2000 ~ "S",
+      o_sch_dist < 600 ~ "S",
       # here we use a broad radius for school.
       TRUE ~ o_place
     ),
     d_place = case_when(
       is.na(d_sch_dist) ~ d_place,
       d_place == "H" ~ "H",
-      d_sch_dist < 2000 ~ "S",
+      d_sch_dist < 600 ~ "S",
       #here we use a broad radius for school.
       TRUE ~ d_place
     ),
@@ -1034,6 +1035,11 @@ per_out <- remove_na_per %>%
     race_simple = ifelse(race_broad == "White", "White", "Non-white")
   )
 
+hh_out <- remove_na_hh %>%
+  mutate(
+    num_workersalt = ifelse(num_workers>=3, "3+", as.character(num_workers))
+  )
+
 
 ```
 
@@ -1055,7 +1061,7 @@ simplify_mode <- trips_purp %>%
   mutate(
     mode_simple = case_when(
       grepl("auto", mode_type) ~ "auto",
-      mode_type == "walk" | mode_type == "bike" ~ "walkbike",
+#      mode_type == "walk" | mode_type == "bike" ~ "walkbike",
       TRUE ~ mode_type
     ),
     distbin = case_when(
@@ -1077,7 +1083,7 @@ simplify_mode <- trips_purp %>%
 # while knitting, testing, etc.
 if (1 == 1) {
   write_csv(
-    remove_na_hh,
+    hh_out,
     "C:/Work/Travel Trends/HTS/2024 HTS/processed/hh_processed.csv",
     na = ""
   )
