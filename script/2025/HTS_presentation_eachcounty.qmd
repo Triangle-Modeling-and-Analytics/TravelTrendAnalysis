@@ -158,16 +158,25 @@ nice_y_axis <- function(x,
             brks <- sort(unique(c(0, brks)))
           }
         }
-        # If adding 0 caused overflow, trim farthest break while retaining 0
+        # If adding 0 caused overflow, trim interior breaks but always keep 0 and the top break
         if (length(brks) > max_breaks) {
-          # Remove either the highest or lowest (not zero) to get back to cap
-            removable <- setdiff(brks, 0)
-            # Prefer removing one farthest from data upper bound if both sides available
-            if (length(removable)) {
-              # Choose candidate whose removal keeps range covering xmax
-              # simple heuristic: drop the largest if upper extension is large
-              brks <- sort(head(brks, max_breaks))
+          has_zero <- any(abs(brks) < .Machine$double.eps^0.25)
+          first_idx <- if (has_zero) which.min(abs(brks - 0)) else 1
+          last_idx <- length(brks)
+          if (max_breaks == 1) {
+            brks <- brks[last_idx]
+          } else if (max_breaks == 2) {
+            brks <- brks[c(first_idx, last_idx)]
+          } else {
+            interior <- seq(first_idx + 1L, last_idx - 1L)
+            if (length(interior) > 0) {
+              n_needed <- max_breaks - 2L
+              idx <- if (n_needed <= 0) integer(0) else unique(round(seq(min(interior), max(interior), length.out = n_needed)))
+              brks <- brks[c(first_idx, idx, last_idx)]
+            } else {
+              brks <- brks[c(first_idx, last_idx)]
             }
+          }
         }
         # Adjust limits to respect zero baseline
         if (min(brks) < 0) {
@@ -175,6 +184,22 @@ nice_y_axis <- function(x,
           brks <- sort(unique(c(0, brks[brks >= 0])))
         }
         if (min(brks) > 0) brks <- sort(unique(c(0, brks)))
+      }
+
+      # Final safeguard: ensure the top break exceeds the data maximum
+      if (max(brks) < xmax) {
+        top <- max(brks)
+        brks <- sort(unique(c(brks, top + st)))
+        # If we now exceeded the cap, remove one interior break (keep first and last)
+        if (length(brks) > max_breaks) {
+          first_idx <- 1L
+          last_idx <- length(brks)
+          interior <- seq(first_idx + 1L, last_idx - 1L)
+          if (length(interior) > 0) {
+            drop_idx <- interior[ceiling(length(interior)/2)]
+            brks <- brks[-drop_idx]
+          }
+        }
       }
 
       # Scoring:
@@ -190,7 +215,8 @@ nice_y_axis <- function(x,
 
       if (score < score_best) {
         score_best <- score
-        best <- list(limits = c(lower, upper),
+        # Align limits with the final set of breaks so the plotted limits match the ticks
+        best <- list(limits = range(brks),
                      breaks = brks,
                      step = st,
                      n_actual = n_actual)
@@ -605,7 +631,7 @@ plt3
 
 Average household metrics have remained stable across the years.
 
-```{r 1.5}
+```{r 03 demographics}
 tab03a <- HH %>%
   group_by(year) %>%
   summarise(
@@ -788,7 +814,7 @@ ggplot(tab04a, aes(x = year, y = Percentage, fill = HHSize)) +
 :::
 
 ::: {.column width="50%"}
-```{r hhworkers}
+```{r 06 hhworkers}
 tab06 <- HH %>%
   group_by(year, HHWorkers) %>%
   summarise(hhnum = sum(hh_weight), .groups = "drop_last") %>%
@@ -858,7 +884,7 @@ ggplot(tab06, aes(x = year, y = Percentage, fill = HHWorkers)) +
     fontface = "bold",
     size = 3.5,
     direction = "y",
-    xlim = c(max(tab06$year) + 0.5, NA),
+    xlim = c(2024.5,2027),
     hjust = 0,
     segment.size = .7,
     segment.alpha = .5,
@@ -883,7 +909,7 @@ ggplot(tab06, aes(x = year, y = Percentage, fill = HHWorkers)) +
   theme(
     axis.title = element_blank(),
     plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
-    plot.margin = margin(30, 60, 20, 10)
+    plot.margin = margin(30, 90, 20, 10)
   )
 ```
 :::
@@ -897,7 +923,7 @@ Zero-vehicle households remain stable while households with more than 2 vehicles
 
 :::: {.columns}
 ::: {.column width="50%"}
-```{r auto ownership}
+```{r 05 auto ownership}
 tab05a <- HH %>%
   group_by(year, nveh) %>%
   summarise(hhnum = sum(hh_weight), .groups = "drop_last") %>%
@@ -996,7 +1022,7 @@ ggplot(tab05a, aes(x = year, y = Percentage, fill = nveh)) +
 ```
 :::
 ::: {.column width="50%"}
-```{r hhincome}
+```{r 07 hhincome}
 tab07 <- HH %>%
   group_by(year, income_broad) %>%
   summarise(hhnum = sum(hh_weight), .groups = "drop_last") %>%
@@ -1100,7 +1126,7 @@ ggplot(tab07, aes(x = year, y = Percentage, fill = income_broad)) +
 
 The distribution of survey data by age shows some lumpiness in the various age categories, likely attributed to small sample sizes and the fact that age is not a control factor in the data weighting and expansion. Even so, seniors are a growing segment of the Triangle’s population. Also, in 2018, survey data became more inclusive with new non-binary gender categories.
 
-```{r age}
+```{r 08 age}
 sample_size_p <-  Person %>%
   group_by(year) %>%
   summarise(
@@ -1209,7 +1235,7 @@ ggplot(tab08, aes(x = year, y = Percentage, fill = agecat)) +
 # Worker Status
 
 
-```{r worker status}
+```{r 09 worker status}
 #  distribution stacked area (pattern mirrors age chunk)
 
 tab09 <- Person %>%
@@ -1311,7 +1337,7 @@ ggplot(tab09, aes(x = year, y = Percentage, fill = worker_status)) +
 # University Status
 
 
-```{r univ status}
+```{r 10 univ status}
 
 tab10 <- Person %>%
   mutate(univ_status = case_when(
@@ -1732,7 +1758,7 @@ ggplot(tab12, aes(x = year, y = Percentage, fill = ethnicity_broad)) +
 
 ------------------------------------------------------------------------
 
-## HH Trip Rates by Geography TBD
+## HH Trip Rates by Geography
 
 use pictogram here
 The number of average daily trips made by households in the Triangle region is closer to rates observed pre-pandemic. 
@@ -1740,29 +1766,28 @@ The number of average daily trips made by households in the Triangle region is c
 ```{r 14 trip rate}
 # Average Daily Vehicle Trips per Household - Bar Chart
 
-tab10a <- Trips %>%
-  mutate(veh_trip = ifelse(grepl("auto", mode_type), trip_weight, 0)) %>%
+tab14a <- Trips %>%
   group_by(year) %>%
-  summarise(tot_veh_trip = sum(veh_trip), .groups = "drop")
+  summarise(tot_trip = sum(trip_weight), .groups = "drop")
 
-tab10b <- HH %>%
+tab14b <- HH %>%
   group_by(year) %>%
   summarise(hh = sum(hh_weight), .groups = "drop")
 
-tab10 <- tab10a %>%
-  left_join(tab10b, by = "year") %>%
-  mutate(`Daily vehicle trips/HH` = tot_veh_trip / hh) %>%
-  select(year, `Daily vehicle trips/HH`)
+tab14 <- tab14a %>%
+  left_join(tab14b, by = "year") %>%
+  mutate(`Daily trips/HH` = tot_trip / hh) %>%
+  select(year, `Daily trips/HH`)
 
-yaxis <- nice_y_axis(tab10$`Daily vehicle trips/HH`, max_breaks = 6, start_at_zero = TRUE)
+yaxis <- nice_y_axis(tab14$`Daily trips/HH`, n_breaks = 6, start_at_zero = TRUE)
 y_breaks <- yaxis$breaks
-y_limits <- c(0, max(yaxis$breaks))
+y_limits <- yaxis$limits
 
 
-ggplot(tab10, aes(x = factor(year), y = `Daily vehicle trips/HH`, fill = factor(year))) +
+ggplot(tab14, aes(x = factor(year), y = `Daily trips/HH`, fill = factor(year))) +
   geom_col(width = 0.55) +
   geom_text(
-    aes(label = round(`Daily vehicle trips/HH`, 1)),
+    aes(label = round(`Daily trips/HH`, 1)),
     vjust = -0.6,
     size = 3.5,
     color = "grey20"
@@ -1771,7 +1796,7 @@ ggplot(tab10, aes(x = factor(year), y = `Daily vehicle trips/HH`, fill = factor(
   scale_fill_wolfpack() +
   labs(
     x = NULL,
-    y = "Daily vehicle trips per household",
+    y = "Daily trips per household",
     title = HH$h_county[1]
   ) +
   guides(fill = "none") +
@@ -1785,7 +1810,7 @@ ggplot(tab10, aes(x = factor(year), y = `Daily vehicle trips/HH`, fill = factor(
     size = 3.2,
     vjust = 4
   ) +
-  coord_cartesian(ylim=c(0,8), clip = "off") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
   theme(
     plot.title = element_text(hjust = 0.5),
@@ -1820,27 +1845,89 @@ tab15b <- Trips %>%
 tab15 <- tab15b %>%
   left_join(tab15a, by = c("year", "HHSize")) %>%
   mutate(
-    trip_rate = tot_per_trip/household
+    trip_rate = tot_per_trip/household,
+    HHSize = factor(HHSize, levels = c("1", "2", "3", "4+"), labels = c("1 Person", "2 People", "3 People", "4+ People")),
+    name_lab = if_else(year == 2024, as.character(HHSize), NA_character_)
   )%>%
   select(-tot_per_trip, -household)
 
-tab15$HHSize <- factor(tab15$HHSize, levels = c("1", "2", "3", "4+"), labels = c("1 Person", "2 People", "3 People", "4+ People"))
+# Use 'total trips' line template
+yaxis <- nice_y_axis(tab15$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 
-# Create the line graph
 ggplot(tab15, aes(x = year, y = trip_rate, color = HHSize, group = HHSize)) +
+  # manual grid lines
+  geom_vline(
+    xintercept = seq(min(tab15$year), max(tab15$year), by = 1),
+    color = "grey91",
+    size = .6
+  ) +
+  geom_segment(
+    data = tibble(y = yaxis$breaks, x1 = 2016, x2 = 2024),
+    aes(x = x1, xend = x2, y = y, yend = y),
+    inherit.aes = FALSE,
+    color = "grey91",
+    size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab15$year), max(tab15$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
+  # end-of-line labels
+  geom_text_repel(
+    aes(label = name_lab),
+    fontface = "bold",
+    size = 3.5,
+    direction = "y",
+    xlim = c(2025.5, NA),
+    hjust = 0,
+    segment.size = .7,
+    segment.alpha = .5,
+    segment.linetype = "dotted",
+    box.padding = .4,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # numeric labels inside limits
+  geom_text_repel(
+    aes(label = round(trip_rate, 1)),
+    size = 3,
+    direction = "both",
+    xlim = c(2016, 2024),
+    box.padding = 0.25,
+    point.padding = 0.15,
+    segment.size = 0.3,
+    nudge_x = 0.1
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(
+    breaks = seq(min(tab15$year), max(tab15$year), 1),
+    limits = c(min(tab15$year), max(tab15$year) + 2),
+    expand = c(0.02, 0.02)
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    breaks = yaxis$breaks,
+    limits = yaxis$limits,
+    expand = c(0.05, 0.05)
+  ) +
   scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate(
+    "text",
+    x = sample_size_t$year,
+    y = yaxis$limits[2],
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 3.5,
+    vjust = -1
   ) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.35, margin = margin(b = 20)),
+    plot.margin = margin(30, 40, 20, 10),
+    panel.grid = element_blank()
+  )
 
 ```
 
@@ -1867,28 +1954,87 @@ tab16b <- Trips %>%
 tab16 <- tab16b %>%
   left_join(tab16a, by = c("year", "nveh")) %>%
   mutate(
-    trip_rate = tot_per_trip/household
+    trip_rate = tot_per_trip/household,
+    nveh = factor(nveh, levels = c("0", "1", "2", "3+"), labels = c("0 Vehicle", "1 Vehicles",
+            "2 Vehicles", "3+ Vehicles")),
+    name_lab = if_else(year == 2024, as.character(nveh), NA_character_)
   )%>%
   select(-tot_per_trip, -household)
 
-tab16$nveh <- factor(tab16$nveh, levels = c("0", "1", "2", "3+"), labels = c("0 Vehicle", "1 Vehicles",
-  "2 Vehicles", "3+ Vehicles"))
+# Use 'total trips' line template
+yaxis <- nice_y_axis(tab16$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 
-# Create the line graph
 ggplot(tab16, aes(x = year, y = trip_rate, color = nveh, group = nveh)) +
+  geom_vline(
+    xintercept = seq(min(tab16$year), max(tab16$year), by = 1),
+    color = "grey91",
+    size = .6
+  ) +
+  geom_segment(
+    data = tibble(y = yaxis$breaks, x1 = 2016, x2 = 2024),
+    aes(x = x1, xend = x2, y = y, yend = y),
+    inherit.aes = FALSE,
+    color = "grey91",
+    size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab16$year), max(tab16$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
+  geom_text_repel(
+    aes(label = name_lab),
+    fontface = "bold",
+    size = 3.5,
+    direction = "y",
+    xlim = c(2025.5, NA),
+    hjust = 0,
+    segment.size = .7,
+    segment.alpha = .5,
+    segment.linetype = "dotted",
+    box.padding = .4,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  geom_text_repel(
+    aes(label = round(trip_rate, 1)),
+    size = 3,
+    direction = "both",
+    xlim = c(2016, 2024),
+    box.padding = 0.25,
+    point.padding = 0.15,
+    segment.size = 0.3,
+    nudge_x = 0.1
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(
+    breaks = seq(min(tab16$year), max(tab16$year), 1),
+    limits = c(min(tab16$year), max(tab16$year) + 2),
+    expand = c(0.02, 0.02)
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    breaks = yaxis$breaks,
+    limits = yaxis$limits,
+    expand = c(0.05, 0.05)
+  ) +
   scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate(
+    "text",
+    x = sample_size_t$year,
+    y = yaxis$limits[2],
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 3.5,
+    vjust = -1
   ) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.35, margin = margin(b = 20)),
+    plot.margin = margin(30, 40, 20, 10),
+    panel.grid = element_blank()
+  )
 
 ```
 ------------------------------------------------------------------------
@@ -1911,26 +2057,94 @@ tab17b <- Trips %>%
 tab17 <- tab17b %>%
   left_join(tab17a, by = c("year", "num_workersalt")) %>%
   mutate(
-    trip_rate = tot_per_trip/hh
+    trip_rate = tot_per_trip/hh,
+    HHWorkers = case_when(
+      num_workersalt == "0"  ~ "0 Workers",
+      num_workersalt == "1"  ~ "1 Worker",
+      num_workersalt == "2"  ~ "2 Workers",
+      num_workersalt == "3+" ~ "3+ Workers"
+    ),
+    name_lab = if_else(year == 2024, HHWorkers, NA_character_),
+    HHWorkers = factor(HHWorkers,
+                            levels = c("0 Workers",  "1 Worker", "2 Workers","3+ Workers"))
   )%>%
   select(-tot_per_trip, -hh) 
 
+  
+# Use 'total trips' line template
+yaxis <- nice_y_axis(tab17$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 
-# Create the line graph
-ggplot(tab17, aes(x = year, y = trip_rate, color = num_workersalt, group = num_workersalt)) +
+ggplot(tab17, aes(x = year, y = trip_rate, color = HHWorkers, group = HHWorkers)) +
+  geom_vline(
+    xintercept = seq(min(tab17$year), max(tab17$year), by = 1),
+    color = "grey91",
+    size = .6
+  ) +
+  geom_segment(
+    data = tibble(y = yaxis$breaks, x1 = 2016, x2 = 2024),
+    aes(x = x1, xend = x2, y = y, yend = y),
+    inherit.aes = FALSE,
+    color = "grey91",
+    size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab17b$year), max(tab17b$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
+  geom_text_repel(
+    aes(label = name_lab),
+    fontface = "bold",
+    size = 3.5,
+    direction = "y",
+    xlim = c(2025.5, NA),
+    hjust = 0,
+    segment.size = .7,
+    segment.alpha = .5,
+    segment.linetype = "dotted",
+    box.padding = .4,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  geom_text_repel(
+    aes(label = round(trip_rate, 1)),
+    size = 3,
+    direction = "both",
+    xlim = c(2016, 2024),
+    box.padding = 0.25,
+    point.padding = 0.15,
+    segment.size = 0.3,
+    nudge_x = 0.1
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(
+    breaks = seq(min(tab17$year), max(tab17$year), 1),
+    limits = c(min(tab17$year), max(tab17$year) + 2),
+    expand = c(0.02, 0.02)
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    breaks = yaxis$breaks,
+    limits = yaxis$limits,
+    expand = c(0.05, 0.05)
+  ) +
   scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate(
+    "text",
+    x = sample_size_t$year,
+    y = yaxis$limits[2],
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 3.5,
+    vjust = -1
   ) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.35, margin = margin(b = 20)),
+    plot.margin = margin(30, 40, 20, 10),
+    panel.grid = element_blank()
+  )
 
 ```
 
@@ -1958,25 +2172,84 @@ tab18 <- tab18b %>%
   mutate(
     trip_rate = tot_per_trip/household,
     income_broad = factor(income_broad,
-                    levels = c("Under $25,000", "$25,000-$49,999", "$50,000-$99,999", "$100,000 or more", "Prefer not to answer")))%>%
+                    levels = c("Under $25,000", "$25,000-$49,999", "$50,000-$99,999", "$100,000 or more", "Prefer not to answer")),
+    name_lab = if_else(year == 2024, as.character(income_broad), NA_character_))%>%
   select(-tot_per_trip, -household)
 
+# Use 'total trips' line template
+yaxis <- nice_y_axis(tab18$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 
-# Create the line graph
 ggplot(tab18, aes(x = year, y = trip_rate, color = income_broad, group = income_broad)) +
+  geom_vline(
+    xintercept = seq(min(tab18$year), max(tab18$year), by = 1),
+    color = "grey91",
+    size = .6
+  ) +
+  geom_segment(
+    data = tibble(y = yaxis$breaks, x1 = 2016, x2 = 2024),
+    aes(x = x1, xend = x2, y = y, yend = y),
+    inherit.aes = FALSE,
+    color = "grey91",
+    size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab18$year), max(tab18$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
+  geom_text_repel(
+    aes(label = name_lab),
+    fontface = "bold",
+    size = 3.5,
+    direction = "y",
+    xlim = c(2025.5, NA),
+    hjust = 0,
+    segment.size = .7,
+    segment.alpha = .5,
+    segment.linetype = "dotted",
+    box.padding = .4,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  geom_text_repel(
+    aes(label = round(trip_rate, 1)),
+    size = 3,
+    direction = "both",
+    xlim = c(2016, 2024),
+    box.padding = 0.25,
+    point.padding = 0.15,
+    segment.size = 0.3,
+    nudge_x = 0.1
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(
+    breaks = seq(min(tab18$year), max(tab18$year), 1),
+    limits = c(min(tab18$year), max(tab18$year) + 2),
+    expand = c(0.02, 0.02)
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    breaks = yaxis$breaks,
+    limits = yaxis$limits,
+    expand = c(0.05, 0.05)
+  ) +
   scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate(
+    "text",
+    x = sample_size_t$year,
+    y = yaxis$limits[2],
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 3.5,
+    vjust = -1
   ) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.35, margin = margin(b = 20)),
+    plot.margin = margin(30, 40, 20, 10),
+    panel.grid = element_blank()
+  )
 
 
 ```
@@ -1990,59 +2263,80 @@ left blank
 
 ------------------------------------------------------------------------
 
-## Person Trip Rates by Geography TBD
+## Person Trip Rates by Geography
 
 
 ```{r 19 per trip_rate by county }
-tab19a <- HH %>%
-  group_by(year, income_broad) %>%
+tab19a <- Person %>%
+  group_by(year) %>%
   summarise(
-    household = sum(hh_weight)
+    population = sum(person_weight), .groups = "drop"
   ) 
 
 tab19b <- Trips %>%
-  group_by(year, income_broad) %>%
-  summarise(
-    tot_per_trip = sum(trip_weight))
+  group_by(year) %>%
+  summarise(tot_trip = sum(trip_weight), .groups = "drop")
 
 tab19 <- tab19b %>%
-  left_join(tab19a, by = c("year", "income_broad")) %>%
+  left_join(tab19a, by = "year") %>%
   mutate(
-    trip_rate = tot_per_trip/household,
-    income_broad = factor(income_broad,
-                    levels = c("Under $25,000", "$25,000-$49,999", "$50,000-$99,999", "$100,000 or more", "Prefer not to answer")))%>%
-  select(-tot_per_trip, -household)
+    `Daily trips/Person`  = tot_trip/population,
+    )%>%
+  select(-tot_trip, -population)
 
+#  Bar Chart
+yaxis <- nice_y_axis(tab19$`Daily trips/Person`, max_breaks = 6, start_at_zero = TRUE)
+y_breaks <- yaxis$breaks
+y_limits <- yaxis$limits
 
-# Create the line graph
-ggplot(tab19, aes(x = year, y = trip_rate, color = income_broad, group = income_broad)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab19$year), max(tab19$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
+ggplot(tab19, aes(x = factor(year), y = `Daily trips/Person`, fill = factor(year))) +
+  geom_col(width = 0.55) +
+  geom_text(
+    aes(label = round(`Daily trips/Person`, 1)),
+    vjust = -0.6,
+    size = 3.5,
+    color = "grey20"
+  ) +
+  scale_y_continuous(breaks = y_breaks, limits = y_limits, expand = expansion(mult = c(0, 0.05))) +
+  scale_fill_wolfpack() +
   labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
+    x = NULL,
+    y = "Daily vehicle trips per household",
     title = HH$h_county[1]
   ) +
+  guides(fill = "none") +
+  # Sample size labels below x-axis: place just below 0 using negative y offset
+  annotate(
+    "text",
+    x = factor(sample_size_t$year),
+    y = 0,
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 3.2,
+    vjust = 4
+  ) +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.title = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(10, 20, 40, 5)  # extra bottom room for annotation
+  )
 ```
 
 ------------------------------------------------------------------------
 
 ## Person Trip Rates by Age
-
+Need to revise the sample size annotation line to sample size per group
 
 ```{r 20 per trip rate by age}
 tab20a <- Person %>%
   group_by(year, agecat) %>%
   summarise(
     people = sum(person_weight),
+    samplesize = n_distinct(person_id)
   ) 
 
 tab20b <- Trips %>%
@@ -2054,31 +2348,74 @@ tab20b <- Trips %>%
 tab20 <- tab20b %>%
   left_join(tab20a, by = c("year", "agecat")) %>%
   mutate(
-    trip_rate = tot_per_trip/people
+    trip_rate = tot_per_trip/people,
+    agecat =  factor(agecat, levels = c("Under 18", "18-34", "35-64", "65+")),
+    name_lab = if_else(year == 2024, as.character(agecat), NA_character_)
   )%>%
   select(-tot_per_trip, -people) 
 
-tab20$agecat <- factor(
-  tab20$agecat,
-  levels = c("Under 18", "18-34", "35-64", "65+")
-)
-
-
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab20$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab20, aes(x = year, y = trip_rate, color = agecat, group = agecat)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab20$year), max(tab20$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab20$year), x2 = max(tab20$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab20$year), max(tab20$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  # numeric data labels at points
+  geom_text_repel(
+    aes(label = round(trip_rate, 1)),
+    size = 3,
+    direction = "both",
+    box.padding = 0.2,
+    point.padding = 0.1,
+    segment.size = 0.2,
+    max.overlaps = 100
   ) +
+  # end-of-line series name labels
+  ggrepel::geom_text_repel(
+    data = dplyr::filter(tab20, !is.na(name_lab)),
+    aes(label = name_lab, y = trip_rate, color = agecat),
+    fontface = "bold",
+    size = 4,
+    direction = "y",
+    xlim = c(max(tab20$year, na.rm = TRUE) + 1.2, NA),
+    hjust = 0,
+    segment.size = .7,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .4
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(
+    breaks = seq(min(tab20$year), max(tab20$year), 1),
+    limits = c(min(tab20$year), max(tab20$year) + 2),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  scale_y_continuous(labels = scales::comma, 
+                     breaks = yaxis$breaks, 
+                     limits = yaxis$limits, 
+                     expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", 
+           x = tab20a$year, 
+           y = yaxis$limits[2], 
+           label = paste0("n=", scales::comma(tab20a$samplesize)), 
+           color = "grey40", 
+           size = 3.5, 
+           vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    plot.title = element_text(hjust = 0.4),
+    plot.margin = margin(30, 80, 20, 10),
+    panel.grid = element_blank()
+  )
 
 ```
 
@@ -2086,11 +2423,14 @@ ggplot(tab20, aes(x = year, y = trip_rate, color = agecat, group = agecat)) +
 
 ## Person Trip Rates by Ethnicity
 
+Need to revise the sample size annotation line to sample size per group
+
 ```{r 21 trip rate by Ethnicity}
 tab21a <- Person %>%
   group_by(year, ethnicity_broad) %>%
   summarise(
     people = sum(person_weight),
+    samplesize = n_distinct(person_id)
   ) 
 
 tab21b <- Trips %>%
@@ -2102,27 +2442,43 @@ tab21b <- Trips %>%
 tab21 <- tab21b %>%
   left_join(tab21a, by = c("year", "ethnicity_broad")) %>%
   mutate(
-    trip_rate = tot_per_trip/people
+    trip_rate = tot_per_trip/people,
+    name_lab = if_else(year == 2024, as.character(ethnicity_broad), NA_character_)
   )%>%
   select(-tot_per_trip, -people) %>%
   filter(ethnicity_broad != "")
 
-
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab21$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab21, aes(x = year, y = trip_rate, color = ethnicity_broad, group = ethnicity_broad)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab21$year), max(tab21$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab21$year), x2 = max(tab21$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab21$year), max(tab21$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  geom_text_repel(aes(label = round(trip_rate, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = filter(tab21, !is.na(name_lab)),
+    aes(label = name_lab, y = trip_rate, color = ethnicity_broad),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2029), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
   ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab21$year), max(tab21$year), 1), limits = c(min(tab21$year), max(tab21$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab21a$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab21a$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 140, 20, 10), 
+        panel.grid = element_blank())
 
 ```
 
@@ -2131,16 +2487,19 @@ ggplot(tab21, aes(x = year, y = trip_rate, color = ethnicity_broad, group = ethn
 
 ## Person Trip Rates by University Student Status
 
+Need to revise the sample size annotation line to sample size per group
+
 ```{r 22 trip rate by univ stud}
 Person <- Person %>%
   mutate(univ_status = case_when(
-    school_type >= 10 & school_type <= 13 ~ "University Student", 
-    TRUE ~ "Not University Student"))
+                      school_type >= 10 & school_type <= 13 ~ "University Student", 
+                      TRUE ~ "Not University Student"))
 
 tab22a <- Person %>%
   group_by(year, univ_status) %>%
   summarise(
-    people = sum(person_weight)
+    people = sum(person_weight),
+    samplesize = n_distinct(person_id)
   ) 
 
 tab22b <- Trips %>%
@@ -2152,26 +2511,42 @@ tab22b <- Trips %>%
 tab22 <- tab22b %>%
   left_join(tab22a, by = c("year", "univ_status")) %>%
   mutate(
-    trip_rate = tot_per_trip/people
+    trip_rate = tot_per_trip/people,
+    name_lab = if_else(year == 2024, as.character(univ_status), NA_character_)
   )%>%
   select(-tot_per_trip, -people)
 
-
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab22$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab22, aes(x = year, y = trip_rate, color = univ_status, group = univ_status)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab22$year), max(tab22$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab22$year), x2 = max(tab22$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab22$year), max(tab22$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  geom_text_repel(aes(label = round(trip_rate, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab22, !is.na(name_lab)),
+    aes(label = name_lab, y = trip_rate, color = univ_status),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2028), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
   ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab22$year), max(tab22$year), 1), limits = c(min(tab22$year), max(tab22$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab22a$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab22a$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 110, 20, 10), 
+        panel.grid = element_blank())
 
 ```
 
@@ -2180,6 +2555,8 @@ ggplot(tab22, aes(x = year, y = trip_rate, color = univ_status, group = univ_sta
 
 ## Person Trip Rates by Worker Status
 
+Need to revise the sample size annotation line to sample size per group
+
 ```{r 23 trip rate by worker status}
 Person <- Person %>%
   mutate(worker_status = ifelse(is.na(num_jobs), "Not Employed", "Employed"))
@@ -2187,7 +2564,8 @@ Person <- Person %>%
 tab23a <- Person %>%
   group_by(year, worker_status) %>%
   summarise(
-    people = sum(person_weight)
+    people = sum(person_weight),
+    samplesize = n_distinct(person_id)
   ) 
 
 tab23b <- Trips %>%
@@ -2199,26 +2577,42 @@ tab23b <- Trips %>%
 tab23 <- tab23b %>%
   left_join(tab23a, by = c("year", "worker_status")) %>%
   mutate(
-    trip_rate = tot_per_trip/people
+    trip_rate = tot_per_trip/people,
+    name_lab = if_else(year == 2024, as.character(worker_status), NA_character_)
   )%>%
   select(-tot_per_trip, -people) 
 
-
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab23$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab23, aes(x = year, y = trip_rate, color = worker_status, group = worker_status)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab23$year), max(tab23$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab23$year), x2 = max(tab23$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab23$year), max(tab23$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  geom_text_repel(aes(label = round(trip_rate, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab23, !is.na(name_lab)),
+    aes(label = name_lab, y = trip_rate, color = worker_status),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(max(tab23$year, na.rm = TRUE) + 1.2, NA), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
   ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab23$year), max(tab23$year), 1), limits = c(min(tab23$year), max(tab23$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab23a$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab23a$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 80, 20, 10), 
+        panel.grid = element_blank())
 
 ```
 ------------------------------------------------------------------------
@@ -2227,6 +2621,8 @@ ggplot(tab23, aes(x = year, y = trip_rate, color = worker_status, group = worker
 
 The reasons people travel remain fairly stable over time. Post pandemic, the average number of trips per day has increased almost back to original levels. The largest increase was for trips that neither began nor ended at home.
 
+Need to revise the sample size annotation line to sample size per group
+
 :::: {.columns}
 ::: {.column width="50%"}
 ```{r 25 trip_rate}
@@ -2234,6 +2630,7 @@ tab25a <- Person %>%
   group_by(year) %>%
   summarise(
     people = sum(person_weight),
+    samplesize = n_distinct(person_id)
   ) 
 
 tab25b <- Trips %>%
@@ -2244,31 +2641,44 @@ tab25b <- Trips %>%
 tab25 <- tab25b %>%
   left_join(tab25a, by = "year") %>%
   mutate(
-    trip_rate = tot_per_trip/people
+    trip_rate = tot_per_trip/people,
+    trip_purpose = factor(trip_purpose, levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")),
+    name_lab = if_else(year == 2024, as.character(trip_purpose), NA_character_)
   )%>%
   select(-tot_per_trip, -people) %>%
   filter(!is.na(trip_purpose))
 
-tab25$trip_purpose <- factor(
-  tab25$trip_purpose,
-  levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")
-)
-
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab25$trip_rate, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab25, aes(x = year, y = trip_rate, color = trip_purpose, group = trip_purpose)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab25$year), max(tab25$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab25$year), x2 = max(tab25$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab25$year), max(tab25$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "trip_rate",
-    color = NULL,
-    title = HH$h_county[1]
+  geom_text_repel(aes(label = round(trip_rate, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab25, !is.na(name_lab)),
+    aes(label = name_lab, y = trip_rate, color = trip_purpose),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2028), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
   ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab25$year), max(tab25$year), 1), limits = c(min(tab25$year), max(tab25$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Trip rate", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab25a$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab25a$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 100, 20, 10), 
+        panel.grid = element_blank())
 
 ```
 :::
@@ -2343,7 +2753,226 @@ ggplot(tab24c, aes(x = year, y = Percentage, fill = trip_purpose)) +
     fontface = "bold",
     size = 4.2,
     direction = "y",
-    xlim = c(max(tab24c$year) + 1.5, NA),
+    xlim = c(2024.5, 2028),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size_t$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
+  theme_minimal() +
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 150, 20, 10)
+  )
+
+```
+
+:::
+::::
+
+------------------------------------------------------------------------
+
+## Average Trip Lengths by Trip Purpose
+
+Trip lengths post pandemic are returning to pre-pandemic levels and sometimes increasing. The most dramatic increase is for other to other trips.
+
+Need to revise the sample size annotation line to sample size per group
+
+```{r 27 avg length by purpose}
+tab27 <- Trips %>%
+  group_by(year, trip_purpose) %>%
+  summarise(
+    distance_miles = weighted.mean(distance_miles,trip_weight,na.rm = T),
+    samplesize = n_distinct(trip_id)) %>%
+  filter(!is.na(trip_purpose))
+
+# helper for end-of-line labels
+tab27 <- tab27 %>% 
+  mutate(
+    trip_purpose = factor(trip_purpose,
+                          levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")),
+    name_lab = if_else(year == 2024, as.character(trip_purpose), NA_character_)
+)
+
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab27$distance_miles, max_breaks = 5, start_at_zero = TRUE)
+ggplot(tab27, aes(x = year, y = distance_miles, color = trip_purpose, group = trip_purpose)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab27$year), max(tab27$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab27$year), x2 = max(tab27$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_text_repel(aes(label = round(distance_miles, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab27, !is.na(name_lab)),
+    aes(label = name_lab, y = distance_miles, color = trip_purpose),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2028), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab27$year), max(tab27$year), 1), limits = c(min(tab27$year), max(tab27$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Distance (miles)", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab27$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab27$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 100, 20, 10), 
+        panel.grid = element_blank())
+
+```
+
+------------------------------------------------------------------------
+
+## Average Trip Duration by Trip Purpose
+
+Trip lengths post pandemic are returning to pre-pandemic levels and sometimes increasing. The most dramatic increase is for other to other trips.
+
+Need to revise the sample size annotation line to sample size per group
+
+```{r 26 duration}
+tab26 <- Trips %>%
+  group_by(year, trip_purpose) %>%
+  summarise(
+    duration_minutes = weighted.mean(duration_minutes,trip_weight,na.rm = T),
+    samplesize = n_distinct(trip_id)) %>%
+  filter(!is.na(trip_purpose))
+
+# helper for end-of-line labels
+tab26 <- tab26 %>% 
+  mutate(
+    trip_purpose = factor(trip_purpose,
+                          levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")),
+    name_lab = if_else(year == 2024, as.character(trip_purpose), NA_character_)
+)
+
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab26$duration_minutes, max_breaks = 5, start_at_zero = TRUE)
+ggplot(tab26, aes(x = year, y = duration_minutes, color = trip_purpose, group = trip_purpose)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab26$year), max(tab26$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab26$year), x2 = max(tab26$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_text_repel(aes(label = round(duration_minutes, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab26, !is.na(name_lab)),
+    aes(label = name_lab, y = duration_minutes, color = trip_purpose),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2027), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
+  ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab26$year), max(tab26$year), 1), limits = c(min(tab26$year), max(tab26$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Duration (minutes)", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab26$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab26$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 100, 20, 10), 
+        panel.grid = element_blank())
+
+```
+
+------------------------------------------------------------------------
+
+## Time of Day
+
+
+```{r 28 tod}
+# Time of Day stacked area (use tab28/tab28_labels naming)
+tab28 <- Trips %>%
+  group_by(year, tod) %>%
+  summarise(trip = sum(trip_weight), .groups = "drop_last") %>%
+  mutate(Percentage = trip / sum(trip)) %>%
+  select(-trip) %>%
+  mutate(
+    tod = factor(tod, levels = c("AM", "PM", "MD", "NT")),
+    name_lab = if_else(year == 2024, as.character(tod), NA_character_)
+  ) %>%
+  arrange(tod)
+
+tab28_labels <- tab28 %>%
+  group_by(year) %>%
+  arrange(tod, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab28, aes(x = year, y = Percentage, fill = tod)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab28_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab28_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab28$year), max(tab28$year), 1),
+    limits = c(min(tab28$year), max(tab28$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE, limits = c("AM", "PM", "MD", "NT")) +
+  scale_color_wolfpack(limits = c("AM", "PM", "MD", "NT")) +
+  labs(
+    x = "Year",
+    y = "Percentage",
+    fill = NULL,
+    title = HH$h_county[1]
+  ) +
+  geom_text_repel(
+    data = tab28_labels %>% dplyr::filter(!is.na(name_lab)),
+    aes(y = y_mid, color = tod, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab28$year) + 1.5, NA),
     hjust = 0,
     segment.size = .8,
     segment.alpha = .6,
@@ -2374,126 +3003,6 @@ ggplot(tab24c, aes(x = year, y = Percentage, fill = trip_purpose)) +
 
 ```
 
-:::
-::::
-
-------------------------------------------------------------------------
-
-## Average Trip Lengths by Trip Purpose
-
-Trip lengths post pandemic are returning to pre-pandemic levels and sometimes increasing. The most dramatic increase is for other to other trips.
-
-
-```{r 27 avg length by purpose}
-tab12 <- Trips %>%
-  group_by(year, trip_purpose) %>%
-  summarise(
-    distance_miles = weighted.mean(distance_miles,trip_weight,na.rm = T)) %>%
-  filter(!is.na(trip_purpose))
-
-tab12$trip_purpose <- factor(
-  tab12$trip_purpose,
-  levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")
-)
-
-# Create the line graph
-ggplot(tab12, aes(x = year, y = distance_miles, color = trip_purpose, group = trip_purpose)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab12$year), max(tab12$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "distance_miles",
-    color = NULL,
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-```
-
-------------------------------------------------------------------------
-
-## Average Trip Duration by Trip Purpose
-
-Trip lengths post pandemic are returning to pre-pandemic levels and sometimes increasing. The most dramatic increase is for other to other trips.
-
-
-```{r 26 duration}
-tab31 <- Trips %>%
-  group_by(year, trip_purpose) %>%
-  summarise(
-    duration_minutes = weighted.mean(duration_minutes,trip_weight,na.rm = T)) %>%
-  filter(!is.na(trip_purpose))
-
-tab31$trip_purpose <- factor(
-  tab31$trip_purpose,
-  levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")
-)
-
-# Create the line graph
-ggplot(tab31, aes(x = year, y = duration_minutes, color = trip_purpose, group = trip_purpose)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab31$year), max(tab31$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "duration_minutes",
-    color = NULL,
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-```
-
-------------------------------------------------------------------------
-
-## Time of Day
-
-
-```{r 28 tod}
-tab31 <- Trips %>%
-  group_by(year, tod) %>%
-  summarise(
-    trip = sum(trip_weight)
-  ) %>%
-  mutate(
-    Percentage = trip/sum(trip)
-  ) %>%
-  select(-trip)
-
-tab31$tod <- factor(
-  tab31$tod,
-  levels = c("AM", "PM", "MD", "NT"))
-
-# Stacked area chart (Time of Day pattern)
-ggplot(tab31, aes(x = year, y = Percentage, fill = tod)) +
-  geom_area(color = "white", size = 0.2, alpha = 0.9) +
-  scale_x_continuous(
-    breaks = seq(min(tab31$year), max(tab31$year), 1),
-    expand = expansion(mult = c(0.02, 0.02))
-  ) +
-  scale_y_continuous(
-    labels = scales::percent_format(accuracy = 1),
-    expand = expansion(mult = c(0, 0))
-  ) +
-  scale_fill_wolfpack() +
-  labs(
-    x = "Year",
-    y = "Percentage",
-    fill = NULL,
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-```
-
 
 ------------------------------------------------------------------------
 
@@ -2506,10 +3015,16 @@ Post pandemic, the share of trips made by people traveling in autos has dropped 
 ```{r 29 non auto ms}
 # Non-Auto Mode Share - Stacked Area
 
+sample_size <- Trips %>%
+  filter(mode_simple != "auto") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab29a <- Trips %>%
   filter(mode_simple != "auto") %>%
   group_by(year, mode_simple) %>%
-  summarise(tot_per_trip = sum(trip_weight), .groups = "drop_last") %>%
+  summarise(
+    tot_per_trip = sum(trip_weight), .groups = "drop_last") %>%
   mutate(Percentage = tot_per_trip / sum(tot_per_trip)) %>%
   select(-tot_per_trip) %>%
   mutate(
@@ -2582,9 +3097,9 @@ ggplot(tab29a, aes(x = year, y = Percentage, fill = mode_simple)) +
   ) +
   annotate(
     "text",
-    x = sample_size_t$year,
+    x = sample_size$year,
     y = 1,
-    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
     color = "grey40",
     size = 3.5,
     vjust = -1
@@ -2677,6 +3192,16 @@ ggplot(tab29b, aes(x = year, y = Percentage, fill = mode_simple)) +
     segment.ncp = 3,
     segment.angle = 20
   ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size_t$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size_t$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
   guides(fill = "none", color = "none") +
   coord_cartesian(clip = "off") +
   theme_minimal() +
@@ -2698,35 +3223,103 @@ ggplot(tab29b, aes(x = year, y = Percentage, fill = mode_simple)) +
 Post pandemic, the share of auto trips for work travel has returned to pre-pandemic levels. The region’s very large decrease in bus ridership has continued post-pandemic. The decrease in bus ridership is likely because of a reduction in overall trips, as well as a reduction in bus service. 2022 had transit trips, but at a very low rate.
 
 ```{r 30 work mode share}
+sample_size <- Trips %>%
+  filter(trip_purpose == "Home to Work" & mode_simple != "") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab30 <- Trips %>%
   filter(trip_purpose == "Home to Work" & mode_simple != "") %>%
   group_by(year, mode_simple) %>%
   summarise(
     trip = sum(trip_weight)) %>%
   mutate(
-    Percentage = trip/sum(trip)) %>%
+    Percentage = trip/sum(trip),
+    mode_simple = factor(mode_simple,
+  levels = c("auto", "bus", "bike", "walk", "school bus", "other"))) %>%
   select(-trip)
 
-tab30$mode_simple <- factor(
-  tab30$mode_simple,
-  levels = c("auto", "bus", "bike", "walk", "school bus", "other")
-)
-# Create the line graph
-ggplot(tab30, aes(x = year, y = Percentage, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab30$year), max(tab30$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+tab30_labels <- tab30 %>%
+  mutate(name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)) %>%
+  group_by(year) %>%
+  arrange(mode_simple, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+  
+# Convert to stacked area chart
+ggplot(tab30, aes(x = year, y = Percentage, fill = mode_simple)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab30_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab30_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab30$year), max(tab30$year), 1),
+    limits = c(min(tab30$year), max(tab30$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab30_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = mode_simple, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab30$year) + 1.5, NA),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 90, 20, 10)
+  )
 
 ```
 
@@ -2737,6 +3330,11 @@ ggplot(tab30, aes(x = year, y = Percentage, color = mode_simple, group = mode_si
 Post pandemic, the share of auto trips for work travel has returned to pre-pandemic levels. The region’s very large decrease in bus ridership has continued post-pandemic. The decrease in bus ridership is likely because of a reduction in overall trips, as well as a reduction in bus service. 2022 had transit trips, but at a very low rate.
 
 ```{r 31 shop mode share}
+sample_size <- Trips %>%
+  filter(trip_purpose == "Home to Shop" & mode_simple != "") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab31 <- Trips %>%
   filter(trip_purpose == "Home to Shop" & mode_simple != "") %>%
   group_by(year, mode_simple) %>%
@@ -2750,22 +3348,90 @@ tab31$mode_simple <- factor(
   tab31$mode_simple,
   levels = c("auto", "bus", "bike", "walk", "school bus", "other")
 )
-# Create the line graph
-ggplot(tab31, aes(x = year, y = Percentage, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab31$year), max(tab31$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+# Convert to stacked area chart
+tab31 <- tab31 %>%
+  mutate(name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)) %>%
+  arrange(mode_simple)
+
+tab31_labels <- tab31 %>%
+  group_by(year) %>%
+  arrange(mode_simple, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab31, aes(x = year, y = Percentage, fill = mode_simple)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab31_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab31_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab31$year), max(tab31$year), 1),
+    limits = c(min(tab31$year), max(tab31$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab31_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = mode_simple, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab31$year) + 1.5, NA),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 90, 20, 10)
+  )
 
 ```
 
@@ -2776,6 +3442,11 @@ ggplot(tab31, aes(x = year, y = Percentage, color = mode_simple, group = mode_si
 Auto and school bus trips are more similar to pre-pandemic levels. Proportionately, kids are biking and walking more to school.
 
 ```{r 32 sch mode share}
+sample_size <- Trips %>%
+  filter(trip_purpose == "Home to School" & mode_simple != "") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab32 <- Trips %>%
   filter(trip_purpose == "Home to School" & mode_simple != "") %>%
   group_by(year, mode_simple) %>%
@@ -2789,22 +3460,90 @@ tab32$mode_simple <- factor(
   tab32$mode_simple,
   levels = c("auto", "bus", "bike", "walk", "school bus", "other")
 )
-# Create the line graph
-ggplot(tab32, aes(x = year, y = Percentage, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab32$year), max(tab32$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+# Convert to stacked area chart
+tab32 <- tab32 %>%
+  mutate(name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)) %>%
+  arrange(mode_simple)
+
+tab32_labels <- tab32 %>%
+  group_by(year) %>%
+  arrange(mode_simple, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab32, aes(x = year, y = Percentage, fill = mode_simple)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab32_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab32_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab32$year), max(tab32$year), 1),
+    limits = c(min(tab32$year), max(tab32$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab32_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = mode_simple, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab32$year) + 1.5, NA),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 90, 20, 10)
+  )
 
 ```
 
@@ -2815,6 +3554,11 @@ ggplot(tab32, aes(x = year, y = Percentage, color = mode_simple, group = mode_si
 Although the shares of university travel by mode have shifted fairly significantly, these trips still hold a majority with auto followed by non-motorized modes. As seen for other trip purposes, transit shares have reduced post-pandemic.  
 
 ```{r 33 univ mode share}
+sample_size <- Trips %>%
+  filter(trip_purpose == "Home to University" & mode_simple != "") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab33 <- Trips %>%
   filter(trip_purpose == "Home to University") %>%
   group_by(year, mode_simple) %>%
@@ -2828,22 +3572,90 @@ tab33$mode_simple <- factor(
   tab33$mode_simple,
   levels = c("auto", "bus", "bike", "walk", "school bus", "other")
 )
-# Create the line graph
-ggplot(tab33, aes(x = year, y = Percentage, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab33$year), max(tab33$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+# Convert to stacked area chart
+tab33 <- tab33 %>%
+  mutate(name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)) %>%
+  arrange(mode_simple)
+
+tab33_labels <- tab33 %>%
+  group_by(year) %>%
+  arrange(mode_simple, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab33, aes(x = year, y = Percentage, fill = mode_simple)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab33_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab33_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab33$year), max(tab33$year), 1),
+    limits = c(min(tab33$year), max(tab33$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab33_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = mode_simple, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab33$year) + 1.5, NA),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 90, 20, 10)
+  )
 
 ```
 
@@ -2855,6 +3667,11 @@ At close to 15% of the overall mode share, walking trips are most competitive fo
 
 
 ```{r 34 hbo mode share}
+sample_size <- Trips %>%
+  filter(trip_purpose == "Home to Other" & mode_simple != "") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab34 <- Trips %>%
   filter(trip_purpose == "Home to Other" & mode_simple != "") %>%
   group_by(year, mode_simple) %>%
@@ -2868,22 +3685,90 @@ tab34$mode_simple <- factor(
   tab34$mode_simple,
   levels = c("auto", "bus", "bike", "walk", "school bus", "other")
 )
-# Create the line graph
-ggplot(tab34, aes(x = year, y = Percentage, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab34$year), max(tab34$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+# Convert to stacked area chart
+tab34 <- tab34 %>%
+  mutate(name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)) %>%
+  arrange(mode_simple)
+
+tab34_labels <- tab34 %>%
+  group_by(year) %>%
+  arrange(mode_simple, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab34, aes(x = year, y = Percentage, fill = mode_simple)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab34_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab34_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab34$year), max(tab34$year), 1),
+    limits = c(min(tab34$year), max(tab34$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab34_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = mode_simple, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab34$year) + 1.5, NA),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 90, 20, 10)
+  )
 
 ```
 
@@ -2895,6 +3780,11 @@ At close to 15% of the overall mode share, walking trips are most competitive fo
 
 
 ```{r 35 nhb mode share}
+sample_size <- Trips %>%
+  filter(trip_purpose == "Other to other" & mode_simple != "") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab35 <- Trips %>%
   filter(trip_purpose == "Other to other" & mode_simple != "") %>%
   group_by(year, mode_simple) %>%
@@ -2908,22 +3798,90 @@ tab35$mode_simple <- factor(
   tab35$mode_simple,
   levels = c("auto", "bus", "bike", "walk", "school bus", "other")
 )
-# Create the line graph
-ggplot(tab35, aes(x = year, y = Percentage, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab35$year), max(tab35$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+# Convert to stacked area chart
+tab35 <- tab35 %>%
+  mutate(name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)) %>%
+  arrange(mode_simple)
+
+tab35_labels <- tab35 %>%
+  group_by(year) %>%
+  arrange(mode_simple, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab35, aes(x = year, y = Percentage, fill = mode_simple)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab35_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab35_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab35$year), max(tab35$year), 1),
+    limits = c(min(tab35$year), max(tab35$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab35_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = mode_simple, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(max(tab35$year) + 1.5, NA),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 90, 20, 10)
+  )
 
 ```
 
@@ -2934,34 +3892,54 @@ ggplot(tab35, aes(x = year, y = Percentage, color = mode_simple, group = mode_si
 
 Trip lengths post pandemic are returning to pre-pandemic levels and sometimes increasing. The most dramatic increase is for other to other trips.
 
+Need to revise the sample size annotation line to sample size per group
 
 ```{r 36 distance by mode}
 tab36 <- Trips %>%
   group_by(year, mode_simple) %>%
   summarise(
-    distance_miles = weighted.mean(distance_miles,trip_weight,na.rm = T)) %>%
+    distance_miles = weighted.mean(distance_miles,trip_weight,na.rm = T),
+    samplesize = n_distinct(trip_id)) %>%
   filter(!is.na(mode_simple) & mode_simple != "other")
 
-tab36$mode_simple <- factor(
-  tab36$mode_simple,
-  levels = c("auto", "bus", "school bus", "bike", "walk")
+# helper for end-of-line labels
+tab36 <- tab36 %>% 
+  mutate(
+      mode_simple = factor(mode_simple, levels = c("auto", "bus", "school bus", "bike", "walk")),
+      name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)
 )
 
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab36$distance_miles, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab36, aes(x = year, y = distance_miles, color = mode_simple, group = mode_simple)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab36$year), max(tab36$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab36$year), x2 = max(tab36$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab36$year), max(tab36$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "distance_miles",
-    color = NULL,
-    title = HH$h_county[1]
+  geom_text_repel(aes(label = round(distance_miles, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab36, !is.na(name_lab)),
+    aes(label = name_lab, y = distance_miles, color = mode_simple),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2026), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
   ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab36$year), max(tab36$year), 1), limits = c(min(tab36$year), max(tab36$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Distance (miles)", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab36$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab36$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 80, 20, 10), 
+        panel.grid = element_blank())
 
 ```
 
@@ -2971,34 +3949,54 @@ ggplot(tab36, aes(x = year, y = distance_miles, color = mode_simple, group = mod
 
 Trip lengths post pandemic are returning to pre-pandemic levels and sometimes increasing. The most dramatic increase is for other to other trips.
 
+Need to revise the sample size annotation line to sample size per group
 
 ```{r 37 duration by mode}
 tab37 <- Trips %>%
   group_by(year, mode_simple) %>%
   summarise(
-    duration_minutes = weighted.mean(duration_minutes,trip_weight,na.rm = T)) %>%
+    duration_minutes = weighted.mean(duration_minutes,trip_weight,na.rm = T),
+    samplesize = n_distinct(trip_id)) %>%
   filter(!is.na(mode_simple) & mode_simple != "other")
 
-tab37$mode_simple <- factor(
-  tab37$mode_simple,
-  levels = c("auto", "bus", "school bus", "bike", "walk")
+# helper for end-of-line labels
+tab37 <- tab37 %>% 
+  mutate(
+      mode_simple = factor(mode_simple, levels = c("auto", "bus", "school bus", "bike", "walk")),
+      name_lab = if_else(year == 2024, as.character(mode_simple), NA_character_)
 )
 
-# Create the line graph
+# Create the line graph with nice y axis, data labels, and end-of-line labels
+yaxis <- nice_y_axis(tab37$duration_minutes, max_breaks = 5, start_at_zero = TRUE)
 ggplot(tab37, aes(x = year, y = duration_minutes, color = mode_simple, group = mode_simple)) +
+  # manual gridlines
+  geom_vline(xintercept = seq(min(tab37$year), max(tab37$year), by = 1), color = "grey91", size = .6) +
+  geom_segment(
+    data = tibble::tibble(y = yaxis$breaks, x1 = min(tab37$year), x2 = max(tab37$year)),
+    aes(x = x1, xend = x2, y = y, yend = y), inherit.aes = FALSE,
+    color = "grey91", size = .6
+  ) +
   geom_line(size = 1) +
   geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab37$year), max(tab37$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "duration_minutes",
-    color = NULL,
-    title = HH$h_county[1]
+  geom_text_repel(aes(label = round(duration_minutes, 1)), size = 3, direction = "both", box.padding = 0.2, point.padding = 0.1, segment.size = 0.2, max.overlaps = 100) +
+  geom_text_repel(
+    data = dplyr::filter(tab37, !is.na(name_lab)),
+    aes(label = name_lab, y = duration_minutes, color = mode_simple),
+    fontface = "bold", size = 4, direction = "y",
+    xlim = c(2024.5, 2026), hjust = 0,
+    segment.size = .7, segment.alpha = .6, segment.linetype = "dotted", box.padding = .4
   ) +
+  coord_cartesian(clip = "off") +
+  scale_x_continuous(breaks = seq(min(tab37$year), max(tab37$year), 1), limits = c(min(tab37$year), max(tab37$year) + 2), expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(labels = scales::comma, breaks = yaxis$breaks, limits = yaxis$limits, expand = c(0.05, 0.05)) +
+  scale_color_wolfpack() +
+  labs(x = "Year", y = "Duration (minutes)", color = NULL, title = HH$h_county[1]) +
+  guides(color = "none") +
+  annotate("text", x = tab37$year, y = yaxis$limits[2], label = paste0("n=", scales::comma(tab37$samplesize)), color = "grey40", size = 3.5, vjust = -1) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.4), 
+        plot.margin = margin(30, 80, 20, 10), 
+        panel.grid = element_blank())
 
 ```
 
@@ -3053,6 +4051,11 @@ tab38_t %>%
 :::
 ::: {.column width="50%"}
 ```{r 38 nm distance}
+sample_size <- Trips %>%
+  filter(mode_simple == "walk" | mode_simple == "bike") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab38c <- Trips %>%
   filter(mode_simple == "walk" | mode_simple == "bike") %>%
   group_by(year, distbin) %>%
@@ -3067,22 +4070,90 @@ tab38c$distbin <- factor(
   tab38c$distbin,
   levels = c("Under 1 Mile", "Between 1 - 6 Miles", "Over 6 Miles")
 )
-# Create the line graph
-ggplot(tab38c, aes(x = year, y = Percentage, color = distbin, group = distbin)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab38c$year), max(tab38c$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+# Convert to stacked area chart
+tab38c <- tab38c %>%
+  mutate(name_lab = if_else(year == 2024, as.character(distbin), NA_character_)) %>%
+  arrange(distbin)
+
+tab38c_labels <- tab38c %>%
+  group_by(year) %>%
+  arrange(distbin, by_group = TRUE) %>%
+  mutate(
+    cum       = cumsum(Percentage),
+    y_mid     = cum - Percentage/2,
+    pct_label = scales::percent(Percentage, accuracy = 1),
+    pct_label = ifelse(Percentage < 0.01, "", pct_label),
+    nudgex = case_when(
+      year == 2016 ~ 0.22,
+      year == 2024 ~ -0.22,
+      TRUE ~ 0
+    )
+  ) %>%
+  ungroup()
+
+ggplot(tab38c, aes(x = year, y = Percentage, fill = distbin)) +
+  geom_area(color = "white", size = 0.2, alpha = 0.9, position = position_fill(reverse = TRUE)) +
+  geom_text(
+    data = tab38c_labels,
+    aes(y = y_mid, label = pct_label),
+    size = 3.6,
+    show.legend = FALSE,
+    vjust = 0.5,
+    lineheight = 0.9,
+    nudge_x = tab38c_labels$nudgex,
+    color = "grey30"
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(tab38c$year), max(tab38c$year), 1),
+    limits = c(min(tab38c$year), max(tab38c$year)),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_fill_wolfpack(drop = FALSE) +
   scale_color_wolfpack() +
   labs(
     x = "Year",
     y = "Percentage",
-    color = NULL,
+    fill = NULL,
     title = HH$h_county[1]
   ) +
+  geom_text_repel(
+    data = tab38c_labels %>% filter(!is.na(name_lab)),
+    aes(y = y_mid, color = distbin, label = name_lab),
+    fontface = "bold",
+    size = 4.2,
+    direction = "y",
+    xlim = c(2024.5, 2027),
+    hjust = 0,
+    segment.size = .8,
+    segment.alpha = .6,
+    segment.linetype = "dotted",
+    box.padding = .5,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20
+  ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  guides(fill = "none", color = "none") +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(
+    axis.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, margin = margin(b = 20)),
+    plot.margin = margin(30, 130, 20, 10)
+  )
 
 ```
 ::::
@@ -3095,6 +4166,11 @@ ggplot(tab38c, aes(x = year, y = Percentage, color = distbin, group = distbin)) 
 Non-motorized travel for non-recreational trips is slowly increasing back from the decline during the pandemic. Trips under 1 mile remain high and longer distance trips increased significantly, perhaps due to the new e-mobility options available on the market.
 
 ```{r 38 nm purpose}
+sample_size <- Trips %>%
+  filter(mode_simple == "walk" | mode_simple == "bike") %>%
+  group_by(year) %>%
+  summarise(samplesize = n_distinct(trip_id))
+
 tab38d <- Trips %>%
   filter(mode_simple == "walk" | mode_simple == "bike") %>%
   filter(!is.na(trip_purpose))%>%
@@ -3103,13 +4179,10 @@ tab38d <- Trips %>%
     nmtrips = sum(trip_weight, na.rm = T)
   ) %>%
   mutate(
+    trip_purpose = factor(trip_purpose, levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")),
     Percentage = nmtrips/sum(nmtrips)) %>%
   select(-nmtrips)
 
-tab38d$trip_purpose <- factor(
-  tab38d$trip_purpose,
-  levels = c("Home to Work","Home to Shop","Home to Other","Home to University","Home to School","Other to other")
-)
 
 # Create the stacked area graph
 ggplot(tab38d, aes(x = year, y = Percentage, fill = trip_purpose)) +
@@ -3129,6 +4202,17 @@ ggplot(tab38d, aes(x = year, y = Percentage, fill = trip_purpose)) +
     fill = NULL,
     title = HH$h_county[1]
   ) +
+  # sample size annotate (trip-level)
+  annotate(
+    "text",
+    x = sample_size$year,
+    y = 1,
+    label = paste0("n=", scales::comma(sample_size$samplesize)),
+    color = "grey40",
+    size = 4,
+    vjust = -1
+  ) +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
 
@@ -3137,236 +4221,8 @@ ggplot(tab38d, aes(x = year, y = Percentage, fill = trip_purpose)) +
 
 ------------------------------------------------------------------------
 
-## Travel by Seniors
-
-:::: {.columns}
-::: {.column width="50%"}
-```{r 39 senior mode share}
-tab39a <- Trips %>%
-  left_join(Person %>% select(c("person_id", "agecat")), by="person_id") %>%
-  filter(agecat == "65+" & mode_simple!="") %>%
-  group_by(year, mode_simple) %>%
-  summarise(
-    trip = sum(trip_weight, na.rm = T)
-  )%>%
-  mutate(
-    Percentage = trip/sum(trip)) %>%
-  select(-trip)%>%
-  pivot_wider(names_from = "mode_simple", values_from = 'Percentage') %>%
-  select(c("year", "auto", "bus", "bike", "walk", "other"))
-
-tab39a %>%
-  as.data.frame() %>%
-  gt() %>%
-  fmt_percent(columns = any_of(c("auto", "bus", "bike", "walk", "other")), decimals = 0)
-
-```
-
-:::
-::: {.column width="50%"}
-```{r 39 senior trip purp}
-tab39b <- Trips %>%
-  left_join(Person %>% select(c("person_id", "agecat")), by="person_id") %>%
-  filter(agecat == "65+") %>%
-  group_by(year, trip_purpose) %>%
-  summarise(
-    trip = sum(trip_weight, na.rm = T)
-  )%>%
-  mutate(
-    Percentage = trip/sum(trip)
-  ) %>%
-  select(-trip) %>%
-  filter(trip_purpose!= "Home to University")
-
-tab39b$trip_purpose <- factor(
-  tab39b$trip_purpose,
-  levels = c("Home to Work","Home to Shop","Home to Other","Other to other"))
 
 
-# Create the line graph
-ggplot(tab39b, aes(x = year, y = Percentage, color = trip_purpose, group = trip_purpose)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab39b$year), max(tab39b$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "Percentage",
-    color = NULL,
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-```
-::::
-
-------------------------------------------------------------------------
-
-## Work Related - Telework Patterns
-
-:::: {.columns}
-::: {.column width="50%"}
-```{r work location}
-tab24a <- Person %>%
-  filter(job_type!="") %>%
-  mutate(
-    job_type_simple = ifelse(
-      job_type == "Go to one work location outside the home", "Go to one work location outside the home (may also telework)", job_type
-  )) %>%
-  group_by(year, job_type_simple) %>%
-  summarise(
-    people = sum(person_weight),
-  ) %>%
-  mutate(
-    Percentage = people/sum(people)
-  ) %>%
-  select(-people)%>%
-  mutate(
-    year = factor(year, levels = sort(unique(year)))
-  )
-
-ggplot(tab24a, aes(x = job_type_simple, y = Percentage, fill = year)) +
-  geom_col(
-    position = position_dodge2(width = 0.8, preserve = "single"),
-    width = 0.7
-  ) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  scale_fill_wolfpack() +
-  scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 16)) +
-  labs(
-    x = NULL, y = "Percentage", fill = "Year",
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 1, lineheight = 0.95)
-  )
-
-```
-:::
-::: {.column width="50%"}
-```{r telework freq}
-tab24b <- Person %>%
-  filter(!is.na(telework_freq)) %>%
-  mutate(
-    year = as.character(year),
-    telework_freq_simple = case_when(
-      telework_freq == "4 days a week" | telework_freq == "2-3 days a week" ~ "2-4 days a week",
-      telework_freq == "1 day a week" | telework_freq == "1 day every 2 weeks" | telework_freq == "1-3 days per month" ~ "1-4 days a month",
-      TRUE ~ telework_freq
-    )) %>%
-  group_by(year, telework_freq_simple) %>%
-  summarise(
-    people = sum(person_weight)
-  )%>%
-  mutate(
-    Percentage = people/sum(people)
-  ) %>%
-  select(-people)
-
-ggplot(tab24b, aes(x = telework_freq_simple, y = Percentage, fill = year)) +
-  geom_col(
-    position = position_dodge2(width = 0.8, preserve = "single"),
-    width = 0.7
-  ) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  scale_fill_wolfpack() +
-  scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 16)) +
-  labs(
-    x = NULL, y = "Percentage", fill = "Year",
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 1, lineheight = 0.95)
-  )
-```
-:::
-::::
-
-
-------------------------------------------------------------------------
-
-## Work Related - Departure Time and Trip Length
-
-:::: {.columns}
-::: {.column width="50%"}
-```{r Departure Time}
-tab25a <- Trips %>%
-  mutate(
-    starttime = floor(departure_time/60),
-    starttime = ifelse(starttime>24, starttime-24, starttime),
-    year = as.character(year)
-  ) %>%
-  group_by(year, starttime) %>%
-  summarise(
-    trip = sum(trip_weight)
-  ) %>%
-  mutate(
-    Percentage = trip/sum(trip)
-  ) %>%
-  select(-trip)
-
-# Create the line graph
-ggplot(tab25a, aes(x = starttime, y = Percentage, color = year, group = year)) +
-  geom_line(size = 1) +
-  scale_x_continuous(limits = c(0, 24), breaks = 0:24, expand = c(0, 0)) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "Percentage",
-    color = NULL,
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-```
-:::
-::: {.column width="50%"}
-```{r Commute trip length}
-tab25b <- Trips %>%
-  filter(trip_purpose == "Home to Work" & mode_simple!= ""& mode_simple!= "other") %>%
-  group_by(year, mode_simple) %>%
-  summarise(
-    tlength = weighted.mean(distance_miles, trip_weight, na.rm = T)
-  ) 
-
-tab25b$mode_simple <- factor(
-  tab25b$mode_simple,
-  levels = c("auto", "bus", "bike", "walk")
-)
-
-# Create the line graph
-ggplot(tab25b, aes(x = year, y = tlength, color = mode_simple, group = mode_simple)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  scale_x_continuous(breaks = seq(min(tab25b$year), max(tab25b$year), 1),
-                     expand = expansion(mult = c(0.02, 0.02))) +
-  scale_color_wolfpack() +
-  labs(
-    x = "Year",
-    y = "Trip Length",
-    color = NULL,
-    title = HH$h_county[1]
-  ) +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-```
-
-:::
-::::
-
-
-
-------------------------------------------------------------------------
 
 
 
